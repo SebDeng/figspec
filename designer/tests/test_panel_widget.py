@@ -1,19 +1,9 @@
-import pytest
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication
 from figspec_designer.ui.panel_widget import PanelWidget
 
 
-@pytest.fixture
-def app():
-    """Create QApplication for tests."""
-    app = QApplication.instance()
-    if app is None:
-        app = QApplication([])
-    return app
-
-
-def test_buttons_emit_actions(app):
+def test_buttons_emit_actions():
+    """Test that buttons emit correct actions when clicked."""
     w = PanelWidget("p1", "a")
     got = []
     w.action.connect(lambda act, pid: got.append((act, pid)))
@@ -27,7 +17,8 @@ def test_buttons_emit_actions(app):
         assert got[-1] == (expected, "p1")
 
 
-def test_click_selects_and_label_updates(app):
+def test_click_selects_and_label_updates():
+    """Test that clicking panel emits select, and label/selected can be updated."""
     w = PanelWidget("p2", "a")
     got = []
     w.action.connect(lambda act, pid: got.append((act, pid)))
