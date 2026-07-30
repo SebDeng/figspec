@@ -42,7 +42,7 @@ def _check_font(doc, cfg):
         return
     groups: dict[tuple, list] = {}
     for r in bad:
-        groups.setdefault((r.page_index, round(r.nominal_pt, 1), round(r.scale, 3)), []).append(r)
+        groups.setdefault((r.page_index, round(r.nominal_pt, 2), round(r.scale, 3)), []).append(r)
     for (page, nominal, scale), runs in sorted(groups.items()):
         eff = nominal * scale
         ev = [f"page {page + 1}: {r.text!r} nominal {r.nominal_pt:g} pt x scale "
@@ -127,12 +127,15 @@ def _check_raster(doc, cfg):
         )
 
 def _check_parse_errors(doc, cfg):
+    if not doc.parse_errors:
+        yield Finding("PAGE-PARSE", "PASS", "All pages parsed cleanly")
+        return
     for page, msg in doc.parse_errors:
         yield Finding("PAGE-PARSE", "WARN",
                       f"Page {page + 1} only partially analyzed",
                       evidence=[msg], page=page)
 
-def run_checks(doc: DocumentContent, cfg: LintConfig) -> list:
+def run_checks(doc: DocumentContent, cfg: LintConfig) -> list[Finding]:
     findings = []
     for chk in (_check_font, _check_linewidth, _check_width,
                 _check_text_present, _check_raster, _check_parse_errors):

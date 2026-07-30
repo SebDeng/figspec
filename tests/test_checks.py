@@ -62,3 +62,22 @@ def test_text_present_and_raster():
 def test_page_parse_warn():
     doc = _doc(parse_errors=[(0, "ValueError: boom")])
     assert by_id(run_checks(doc, LintConfig()))["PAGE-PARSE"][0].level == "WARN"
+
+def test_page_parse_clean_pass():
+    """Clean doc (no parse errors) should emit PAGE-PARSE PASS finding."""
+    doc = _doc()  # no parse_errors
+    d = by_id(run_checks(doc, LintConfig()))
+    assert "PAGE-PARSE" in d
+    assert d["PAGE-PARSE"][0].level == "PASS"
+    assert "cleanly" in d["PAGE-PARSE"][0].message.lower()
+
+def test_font_grouping_precision_round2():
+    """Two text runs at nominal 8.01 and 8.04 with scale 0.4 should NOT merge under round(,2)."""
+    doc = _doc(text_runs=[_run("a", 8.01, 0.4), _run("b", 8.04, 0.4)])
+    fs = by_id(run_checks(doc, LintConfig()))["FONT-EFFECTIVE"]
+    assert len(fs) == 2, f"Expected 2 FONT-EFFECTIVE findings but got {len(fs)}"
+    # Both should be FAIL (< 5.0 pt effective)
+    assert all(f.level == "FAIL" for f in fs)
+    # Verify distinct groups
+    assert fs[0].nominal_pt == 8.01
+    assert fs[1].nominal_pt == 8.04
