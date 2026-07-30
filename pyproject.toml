@@ -24,6 +24,11 @@ classifiers = [
 ]
 dependencies = ["pikepdf>=9", "pypdfium2>=4", "Pillow>=10"]
 
+[project.urls]
+Homepage = "https://github.com/SebDeng/figspec"
+Repository = "https://github.com/SebDeng/figspec"
+Issues = "https://github.com/SebDeng/figspec/issues"
+
 [project.optional-dependencies]
 dev = ["pytest>=8", "pypdf>=4", "matplotlib>=3.8"]
 
