@@ -1,8 +1,9 @@
 """Selected-panel inspector: label, mm / px / figsize, content hint."""
 from __future__ import annotations
-from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QFormLayout, QLabel, QLineEdit, QWidget
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import QGridLayout, QLabel, QLineEdit, QVBoxLayout, QWidget
 from figspec_designer.model.flatten import PanelRect, derive
+from figspec_designer.ui.theme import smallcaps_font
 
 
 class Sidebar(QWidget):
@@ -10,20 +11,57 @@ class Sidebar(QWidget):
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
+        self.setObjectName("sidebar")
+        self.setAttribute(Qt.WA_StyledBackground, True)
         self._panel_id: str | None = None
         self._last_hint: str | None = None
-        form = QFormLayout(self)
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(16, 16, 16, 16)
+        outer.setSpacing(8)
+
+        # Section header
+        header = QLabel("Panel")
+        header.setObjectName("sectionHeader")
+        header.setFont(smallcaps_font())
+        outer.addWidget(header)
+
+        # Grid layout for fields
+        grid = QGridLayout()
+        grid.setSpacing(8)
+
         self.lbl_label = QLabel("—")
         self.lbl_mm = QLabel("—")
         self.lbl_px = QLabel("—")
         self.lbl_figsize = QLabel("—")
+
+        for lbl in (self.lbl_label, self.lbl_mm, self.lbl_px, self.lbl_figsize):
+            lbl.setObjectName("fieldValue")
+            lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
+        fields = [
+            ("Label", self.lbl_label),
+            ("Size (mm)", self.lbl_mm),
+            ("Pixels", self.lbl_px),
+            ("figsize (in)", self.lbl_figsize),
+        ]
+
+        for row, (label_text, value_widget) in enumerate(fields):
+            left_label = QLabel(label_text)
+            left_label.setObjectName("fieldLabel")
+            grid.addWidget(left_label, row, 0)
+            grid.addWidget(value_widget, row, 1)
+
+        outer.addLayout(grid)
+
+        # Hint edit
         self.hint_edit = QLineEdit()
         self.hint_edit.setPlaceholderText("content hint (e.g. STEM image + FFT inset)")
-        form.addRow("Panel", self.lbl_label)
-        form.addRow("Size (mm)", self.lbl_mm)
-        form.addRow("Pixels", self.lbl_px)
-        form.addRow("figsize (in)", self.lbl_figsize)
-        form.addRow("Hint", self.hint_edit)
+        outer.addWidget(self.hint_edit)
+
+        # Stretch
+        outer.addStretch(1)
+
         self.hint_edit.editingFinished.connect(self._emit_hint)
         self.hint_edit.setEnabled(False)
 

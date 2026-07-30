@@ -51,3 +51,21 @@ def test_canvas_theme_hooks(qtbot):
     assert page is not None
     for w in canvas.panel_widgets().values():
         assert w.graphicsEffect() is not None  # shadow attached
+
+
+def test_sidebar_theme_hooks(qtbot):
+    from figspec_designer.ui.sidebar import Sidebar
+    sb = Sidebar()
+    qtbot.addWidget(sb)
+    assert sb.objectName() == "sidebar"
+    header = sb.findChild(QWidget, "sectionHeader")
+    assert header is not None
+    assert sb.lbl_mm.objectName() == "fieldValue"
+
+
+def test_topbar_theme_hooks(qtbot):
+    from figspec_designer.ui.toolbar import TopBar
+    tb = TopBar()
+    qtbot.addWidget(tb)
+    assert tb.objectName() == "topbar"
+    assert tb.btn_copy.objectName() == "primary"

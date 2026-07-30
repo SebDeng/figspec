@@ -1,6 +1,6 @@
 """Page settings + export actions."""
 from __future__ import annotations
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QHBoxLayout, QLabel,
                                QPushButton, QSpinBox, QWidget)
 from figspec.spec import Constraints
@@ -17,8 +17,11 @@ class TopBar(QWidget):
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
+        self.setObjectName("topbar")
+        self.setAttribute(Qt.WA_StyledBackground, True)
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(8, 4, 8, 4)
+        lay.setContentsMargins(16, 8, 16, 8)
+        lay.setSpacing(8)
 
         self.preset_combo = QComboBox()
         self.preset_combo.addItems(list(presets.PRESETS) + ["custom"])
@@ -49,16 +52,31 @@ class TopBar(QWidget):
         self.btn_open = QPushButton("Open…")
         self.btn_save = QPushButton("Save JSON…")
         self.btn_copy = QPushButton("Copy JSON")
+        self.btn_copy.setObjectName("primary")
 
+        # Preset and geometry
         for label, w in [("Preset", self.preset_combo), ("Width", self.width_spin),
-                         ("Height", self.height_spin), ("DPI", self.dpi_spin),
-                         ("Gutter", self.gutter_spin),
-                         ("Min font", self.min_font_spin),
+                         ("Height", self.height_spin)]:
+            lay.addWidget(QLabel(label))
+            lay.addWidget(w)
+
+        # DPI and gutter
+        lay.addSpacing(8)
+        for label, w in [("DPI", self.dpi_spin), ("Gutter", self.gutter_spin)]:
+            lay.addWidget(QLabel(label))
+            lay.addWidget(w)
+
+        # Constraints
+        lay.addSpacing(8)
+        for label, w in [("Min font", self.min_font_spin),
                          ("Max font", self.max_font_spin),
                          ("Min line", self.min_lw_spin)]:
             lay.addWidget(QLabel(label))
             lay.addWidget(w)
+
+        # Buttons
         lay.addStretch(1)
+        lay.addSpacing(8)
         for b in (self.btn_open, self.btn_save, self.btn_copy):
             lay.addWidget(b)
 
