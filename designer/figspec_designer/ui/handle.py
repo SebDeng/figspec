@@ -5,9 +5,6 @@ from PySide6.QtWidgets import QSplitter, QSplitterHandle
 
 
 class GutterHandle(QSplitterHandle):
-    def __init__(self, orientation, splitter: "GutterSplitter"):
-        super().__init__(orientation, splitter)
-
     def mouseMoveEvent(self, event) -> None:
         super().mouseMoveEvent(event)
         splitter = self.splitter()

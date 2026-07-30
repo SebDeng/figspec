@@ -2,6 +2,7 @@
 from __future__ import annotations
 import json
 from pathlib import Path
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (QFileDialog, QHBoxLayout, QMainWindow,
                                QMessageBox, QApplication, QVBoxLayout, QWidget)
@@ -33,6 +34,7 @@ class MainWindow(QMainWindow):
 
         central = QWidget()
         central.setObjectName("chrome")
+        central.setAttribute(Qt.WA_StyledBackground, True)
         outer = QVBoxLayout(central)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(self.topbar)

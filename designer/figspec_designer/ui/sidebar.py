@@ -56,6 +56,7 @@ class Sidebar(QWidget):
 
         # Hint edit
         self.hint_edit = QLineEdit()
+        self.hint_edit.setObjectName("hintEdit")
         self.hint_edit.setPlaceholderText("content hint (e.g. STEM image + FFT inset)")
         outer.addWidget(self.hint_edit)
 

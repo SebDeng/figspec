@@ -10,6 +10,7 @@ DIVIDER = "#D8D5CF"
 INK = "#1A1A18"
 INK_SECONDARY = "#6B6862"
 INK_MUTED = "#A09D96"
+INK_HOVER = "#33332F"
 PANEL_BG = "#FFFFFF"
 LETTER = "#C6C3BC"
 
@@ -46,16 +47,16 @@ QPushButton {{ background: {CHROME}; border: 1px solid {DIVIDER}; border-radius:
     padding: 4px 14px; color: {INK}; }}
 QPushButton:hover {{ background: {CANVAS}; }}
 QPushButton#primary {{ background: {INK}; color: {CHROME}; border: none; font-weight: 600; }}
-QPushButton#primary:hover {{ background: #33332F; }}
+QPushButton#primary:hover {{ background: {INK_HOVER}; }}
 
 QWidget#sidebar {{ background: {CHROME}; border-left: 1px solid {HAIRLINE}; }}
 QLabel#sectionHeader {{ color: {INK_MUTED}; font-size: 10px; font-weight: 600; }}
 QLabel#fieldLabel {{ color: {INK_MUTED}; font-size: 12px; }}
 QLabel#fieldValue {{ color: {INK}; font-size: 12px; font-weight: 600; }}
-QLineEdit {{ background: transparent; border: none; border-bottom: 1px solid {DIVIDER};
+QLineEdit#hintEdit {{ background: transparent; border: none; border-bottom: 1px solid {DIVIDER};
     border-radius: 0; padding: 3px 0; color: {INK}; }}
-QLineEdit:focus {{ border-bottom: 2px solid {INK}; }}
-QLineEdit:disabled {{ border-bottom-color: {HAIRLINE}; color: {INK_MUTED}; }}
+QLineEdit#hintEdit:focus {{ border-bottom: 2px solid {INK}; }}
+QLineEdit#hintEdit:disabled {{ border-bottom-color: {HAIRLINE}; color: {INK_MUTED}; }}
 """
 
 
@@ -70,7 +71,6 @@ def repolish(widget: QWidget) -> None:
 
 def smallcaps_font() -> QFont:
     f = QFont()
-    f.setPointSizeF(10)
     f.setLetterSpacing(QFont.PercentageSpacing, 112)
     f.setCapitalization(QFont.AllUppercase)
     return f

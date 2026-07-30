@@ -76,7 +76,6 @@ class TopBar(QWidget):
 
         # Buttons
         lay.addStretch(1)
-        lay.addSpacing(8)
         for b in (self.btn_open, self.btn_save, self.btn_copy):
             lay.addWidget(b)
 
