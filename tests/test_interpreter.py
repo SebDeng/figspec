@@ -159,3 +159,32 @@ def test_image_dpi(tmp_path):
     doc = extract(p)
     (im,) = doc.images
     assert im.px_w == 10 and im.effective_dpi == pytest.approx(5.0)
+
+def test_form_xobject_recursion(samples):
+    from figspec.selftest.samples import FORM_EFFECTIVE_FONT
+    doc = extract(samples["form"])
+    (run,) = doc.text_runs
+    assert run.effective_pt == pytest.approx(FORM_EFFECTIVE_FONT)  # 10 * 0.5 * 0.6
+    assert run.scale == pytest.approx(0.3)
+
+def test_extgstate_linewidth(tmp_path):
+    import pikepdf
+    pdf = pikepdf.Pdf.new()
+    page = pdf.add_blank_page(page_size=(200, 200))
+    egs = pikepdf.Dictionary(Type=pikepdf.Name.ExtGState, LW=2.5)
+    page.Resources = pikepdf.Dictionary(ExtGState=pikepdf.Dictionary(G1=egs))
+    page.Contents = pdf.make_stream(b"q /G1 gs 10 10 m 100 10 l S Q")
+    p = tmp_path / "egs.pdf"
+    pdf.save(p)
+    doc = extract(p)
+    assert doc.strokes[0].nominal_w_pt == pytest.approx(2.5)
+
+def test_broken_page_degrades(tmp_path):
+    import pikepdf
+    pdf = pikepdf.Pdf.new()
+    page = pdf.add_blank_page(page_size=(100, 100))
+    page.Contents = pdf.make_stream(b"BT /NoSuchFont 8 Tf (x) Tj ET 5 5 m 50 5 l S")
+    p = tmp_path / "broken.pdf"
+    pdf.save(p)
+    doc = extract(p)          # must not raise
+    assert len(doc.strokes) == 1  # remaining content still extracted

@@ -206,7 +206,13 @@ class _Walker:
         return Mat(1, 0, 0, 1, advance, 0) @ tm
 
     def _apply_extgstate(self, gs, resources, ops):
-        pass  # Task 8
+        try:
+            egs = resources["/ExtGState"][str(ops[0])]
+            lw = egs.get("/LW")
+            if lw is not None:
+                gs.line_width = _num(lw)
+        except Exception:
+            pass
 
     def _path_op(self, op, ops, gs, path_pts):
         nums = [_num(v) for v in ops]
@@ -256,7 +262,15 @@ class _Walker:
                 effective_dpi=min(dpi_x, dpi_y), bbox_pt=_bbox_union(corners),
             ))
         elif subtype == "/Form":
-            pass  # Task 8
+            key = (xobj.objgen if xobj.is_indirect else id(xobj))
+            if key in form_stack:
+                return  # cycle guard
+            matrix = xobj.get("/Matrix")
+            inner_ctm = (Mat.from_seq(matrix) if matrix is not None else Mat()) @ gs.ctm
+            inner_res = xobj.get("/Resources")
+            if inner_res is None:
+                inner_res = resources
+            self.walk(xobj, inner_res, inner_ctm, form_stack | {key})
 
 def _page_resources(page) -> pikepdf.Object:
     res = page.get("/Resources")
