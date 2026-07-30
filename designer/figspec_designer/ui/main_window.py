@@ -5,7 +5,7 @@ from pathlib import Path
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (QFileDialog, QHBoxLayout, QMainWindow,
                                QMessageBox, QApplication, QVBoxLayout, QWidget)
-from figspec.spec import Constraints, SpecError, Target
+from figspec.spec import SpecError, Target
 from figspec_designer.document import DesignerDocument, MissingDesignerData
 from figspec_designer.model import ops
 from figspec_designer.model.history import History
@@ -159,7 +159,10 @@ class MainWindow(QMainWindow):
             self.doc = DesignerDocument.from_spec_dict(data)
         except MissingDesignerData as e:
             return str(e)
-        except (SpecError, json.JSONDecodeError, OSError) as e:
+        except (SpecError, ValueError, OSError) as e:
+            # json.JSONDecodeError and the plain ValueErrors raised by
+            # model.tree.from_dict (unknown node type, bad orientation,
+            # ratio/children mismatch) are all ValueError subclasses.
             return f"cannot open: {e}"
         self.history = History(self.doc.tree)
         self.selected_panel_id = None

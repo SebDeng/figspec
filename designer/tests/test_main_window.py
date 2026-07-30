@@ -78,6 +78,18 @@ def test_open_without_sidecar_reports_error(qtbot, tmp_path):
     assert err is not None and "designer" in err
 
 
+def test_open_with_malformed_tree_reports_error(qtbot, tmp_path):
+    win = MainWindow()
+    qtbot.addWidget(win)
+    data = win.doc.to_spec_dict()
+    data["designer"]["tree"] = {"type": "bogus"}
+    p = tmp_path / "malformed.json"
+    p.write_text(json.dumps(data))
+    err = win.open_json(p)
+    assert err is not None
+    assert len(list(iter_panels(win.doc.tree))) >= 1
+
+
 def test_smoke_flag():
     from figspec_designer.app import main
     assert main(["--smoke"]) == 0
