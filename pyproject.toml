@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "figspec"
+version = "0.1.0.dev0"
+description = "Lint finished figure PDFs for effective (post-scaling) font sizes and line widths"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "SebDeng" }]
+keywords = ["matplotlib", "figure", "lint", "pdf", "publication"]
+dependencies = ["pikepdf>=9", "pypdfium2>=4", "Pillow>=10"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pypdf>=4", "matplotlib>=3.8"]
+
+[project.scripts]
+figspec = "figspec.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["figspec"]
