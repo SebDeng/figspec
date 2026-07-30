@@ -24,3 +24,8 @@ packages = ["figspec_designer"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+qt_api = "pyside6"
+addopts = "-v"
+
+[tool.pytest-qt]
+qt_api = "pyside6"
