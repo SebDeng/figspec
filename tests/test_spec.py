@@ -37,3 +37,7 @@ def test_parse_errors():
     with pytest.raises(SpecError):
         parse_spec({"figspec_version": "0.1", "target": {}, "constraints": {},
                     "panels": "not-a-list"})
+    with pytest.raises(SpecError):
+        parse_spec(None)
+    with pytest.raises(SpecError):
+        parse_spec([1, 2])

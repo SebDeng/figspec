@@ -66,6 +66,8 @@ def _require(data: dict, key: str):
 
 
 def parse_spec(data: dict):
+    if not isinstance(data, dict):
+        raise SpecError(f"spec root must be an object, got {type(data).__name__}")
     _require(data, "figspec_version")
     try:
         target = Target(**_require(data, "target"))
