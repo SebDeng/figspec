@@ -56,3 +56,10 @@ def test_missing_file_exits_2(capsys):
 
 def test_min_font_flag(samples):
     assert main(["lint", str(samples["good"]), "--min-font", "8"]) == 1  # 6pt/7pt text now fails
+
+def test_self_test(capsys):
+    rc = main(["lint", "--self-test"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "[ok]" in out and "[FAIL]" not in out
+    assert "self-test passed" in out
