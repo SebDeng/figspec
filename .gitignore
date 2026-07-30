@@ -6,3 +6,4 @@ tests/data/
 *.lint.png
 *.lint.json
 .DS_Store
+.venv.nosync/
