@@ -150,21 +150,18 @@ class _Walker:
             elif op == "Tr":
                 ts.render_mode = int(ops[0])
             elif op == "Tj":
-                tm = self._show(bytes(ops[0]), ts, tm, gs)
+                tm = self._show([bytes(ops[0])], ts, tm, gs)
             elif op == "'":
                 tlm = Mat(1, 0, 0, 1, 0, -ts.leading) @ tlm
-                tm = self._show(bytes(ops[0]), ts, tlm, gs)
+                tm = self._show([bytes(ops[0])], ts, tlm, gs)
             elif op == '"':
                 ts.word_spacing, ts.char_spacing = _num(ops[0]), _num(ops[1])
                 tlm = Mat(1, 0, 0, 1, 0, -ts.leading) @ tlm
-                tm = self._show(bytes(ops[2]), ts, tlm, gs)
+                tm = self._show([bytes(ops[2])], ts, tlm, gs)
             elif op == "TJ":
-                for item in ops[0]:
-                    if isinstance(item, pikepdf.String):
-                        tm = self._show(bytes(item), ts, tm, gs)
-                    else:
-                        dx = -_num(item) / 1000.0 * ts.size * ts.h_scale
-                        tm = Mat(1, 0, 0, 1, dx, 0) @ tm
+                items = [bytes(it) if isinstance(it, pikepdf.String) else _num(it)
+                         for it in ops[0]]
+                tm = self._show(items, ts, tm, gs)
             # path + XObject operators land in Tasks 7-8:
             elif op in ("m", "l", "re", "c", "v", "y", "h",
                         "S", "s", "B", "B*", "b", "b*", "f", "F", "f*", "n"):
@@ -172,28 +169,48 @@ class _Walker:
             elif op == "Do":
                 self._do_xobject(str(ops[0]), resources, gs, form_stack)
 
-    def _show(self, data: bytes, ts: _TState, tm: Mat, gs: _GState) -> Mat:
+    def _show(self, items: list, ts: _TState, tm: Mat, gs: _GState) -> Mat:
+        """Render one logical text-showing operation (Tj, ', ", or a whole TJ
+        array). PDF32000 9.4.3: a TJ array is a single string of text
+        interrupted by repositioning numbers, not independent glyph runs --
+        so all its String elements are merged into one TextRun (matching how
+        Tj/'/" already behave), with the numeric adjustments folded into the
+        advance between them. Splitting per-String previously fragmented
+        kerned text (as matplotlib emits) into single-character runs.
+        """
         if ts.font is None or ts.size == 0:
             return tm
-        pairs = decode_codes(ts.font, data)
-        advance = 0.0
-        for code, _ in pairs:
-            w = ts.font.widths.get(code, ts.font.default_width)
-            advance += w * ts.size + ts.char_spacing
-            if code == 32 and ts.font.code_size == 1:
-                advance += ts.word_spacing
-        advance *= ts.h_scale
+        had_string = False
+        all_pairs: list[tuple[int, str]] = []
+        total_advance = 0.0
+        cur_tm = tm
+        for item in items:
+            if isinstance(item, (bytes, bytearray)):
+                had_string = True
+                pairs = decode_codes(ts.font, item)
+                all_pairs.extend(pairs)
+                adv = 0.0
+                for code, _ in pairs:
+                    w = ts.font.widths.get(code, ts.font.default_width)
+                    adv += w * ts.size + ts.char_spacing
+                    if code == 32 and ts.font.code_size == 1:
+                        adv += ts.word_spacing
+                adv *= ts.h_scale
+            else:
+                adv = -item / 1000.0 * ts.size * ts.h_scale
+            total_advance += adv
+            cur_tm = Mat(1, 0, 0, 1, adv, 0) @ cur_tm
 
-        combined = tm @ gs.ctm
-        scale = combined.vertical_scale()
-        if ts.render_mode not in (3, 7):  # skip invisible / clip-only text
+        if had_string and ts.render_mode not in (3, 7):  # skip invisible / clip-only text
+            combined = tm @ gs.ctm
+            scale = combined.vertical_scale()
             corners = [
                 combined.apply(0, ts.rise - 0.25 * ts.size),
-                combined.apply(advance, ts.rise - 0.25 * ts.size),
+                combined.apply(total_advance, ts.rise - 0.25 * ts.size),
                 combined.apply(0, ts.rise + 0.85 * ts.size),
-                combined.apply(advance, ts.rise + 0.85 * ts.size),
+                combined.apply(total_advance, ts.rise + 0.85 * ts.size),
             ]
-            text = "".join(u for _, u in pairs)
+            text = "".join(u for _, u in all_pairs)
             self.doc.text_runs.append(TextRun(
                 page_index=self.page_index,
                 text=text if text.strip() else "(undecoded text)",
@@ -203,7 +220,7 @@ class _Walker:
                 scale=scale,
                 bbox_pt=_bbox_union(corners),
             ))
-        return Mat(1, 0, 0, 1, advance, 0) @ tm
+        return cur_tm
 
     def _apply_extgstate(self, gs, resources, ops):
         try:

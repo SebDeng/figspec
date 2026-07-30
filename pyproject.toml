@@ -21,3 +21,6 @@ figspec = "figspec.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["figspec"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
