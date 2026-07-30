@@ -1,4 +1,5 @@
 .venv/
+.venv
 __pycache__/
 *.egg-info/
 dist/
@@ -6,3 +7,11 @@ tests/data/
 *.lint.png
 *.lint.json
 .DS_Store
+.venv.nosync/
+
+# macOS packaging build artifacts (designer/packaging/assets/AppIcon.icns is
+# a committed, stable build input and is intentionally NOT ignored here)
+designer/packaging/build-env/
+designer/packaging/build/
+designer/packaging/dist/
+designer/packaging/*.dmg
