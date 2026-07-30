@@ -49,6 +49,10 @@ echo "==> smoke test"
 
 if [ "$SKIP_SIGN" -eq 0 ]; then
   echo "==> codesign"
+  # iCloud sync can leave com.apple.FinderInfo/resource-fork xattrs on
+  # PySide6 .framework dirs, which makes codesign fail with "resource fork,
+  # Finder information, or similar detritus not allowed". Scrub first.
+  xattr -cr "$APP" 2>/dev/null || true
   codesign --deep --force --options runtime --timestamp \
     --sign "$FIGSPEC_SIGN_IDENTITY" "$APP"
   codesign --verify --deep --strict "$APP"

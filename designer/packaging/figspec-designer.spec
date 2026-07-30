@@ -7,7 +7,7 @@ sys.path.insert(0, str(HERE.parent))
 from figspec_designer import __version__
 
 a = Analysis(
-    [str(HERE.parent / "figspec_designer" / "app.py")],
+    [str(HERE.parent / "figspec_designer" / "__main__.py")],
     pathex=[str(HERE.parent), str(HERE.parent.parent)],
     excludes=["tkinter"],
     noarchive=False,
