@@ -42,6 +42,27 @@ JSON findings use `{check_id, level, message, evidence}` plus
 Part of the FigSpec toolchain (layout spec -> exact-size generation -> artifact
 lint). The `figspec.json` layout spec and generator are on the roadmap.
 
+## FigSpec Designer (macOS app)
+
+A visual layout editor for the other half of the workflow: split a
+journal-width canvas into panels, drag gutters with live mm feedback, and
+export `figspec.json` (Save or Copy) for your plotting agent. Panels carry
+auto reading-order labels (a, b, c…) and per-panel mm / px / figsize values.
+
+Run from source:
+
+```bash
+pip install -e designer
+python -m figspec_designer
+```
+
+Build a signed DMG (needs Apple Developer ID; see
+`designer/packaging/build_macos.sh` for the env contract):
+
+```bash
+cd designer/packaging && ./build_macos.sh
+```
+
 ## Example output
 
 Built-in self test, run against the package's own generated samples:

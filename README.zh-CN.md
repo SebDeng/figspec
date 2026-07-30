@@ -42,6 +42,27 @@ figspec lint --self-test
 属于 FigSpec 工具链的一部分（布局规范 -> 精确尺寸生成 -> 成品检查）。
 `figspec.json` 布局规范及生成器在路线图中，尚未实现。
 
+## FigSpec Designer（macOS 应用）
+
+一款可视化布局编辑器，承担工作流的另一半：将符合期刊宽度的画布拆分为多个面板，
+拖动分隔线时实时显示 mm 反馈，并导出 `figspec.json`（保存或复制）供你的绘图
+agent 使用。面板会自动按阅读顺序标注（a、b、c……），并给出每个面板的
+mm / px / figsize 数值。
+
+从源码运行：
+
+```bash
+pip install -e designer
+python -m figspec_designer
+```
+
+构建已签名的 DMG（需要 Apple Developer ID；env 约定见
+`designer/packaging/build_macos.sh`）：
+
+```bash
+cd designer/packaging && ./build_macos.sh
+```
+
 ## 输出示例
 
 内置自检，针对包内自动生成的样例运行：
