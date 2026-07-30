@@ -83,7 +83,7 @@ class _Walker:
 
     def walk(self, container, resources, ctm: Mat, form_stack: frozenset):
         gs = _GState(ctm=ctm)
-        stack: list[_GState] = []
+        stack: list[tuple[_GState, _TState]] = []
         ts = _TState()
         tm = Mat()
         tlm = Mat()
@@ -106,10 +106,13 @@ class _Walker:
             ops = instr.operands
 
             if op == "q":
-                stack.append(replace(gs))
+                # PDF32000 8.4/9.3: text-state parameters (Tc, Tw, Tz, TL,
+                # Tf/Tfs, Tr, Ts) are part of the graphics state and must be
+                # saved/restored by q/Q, unlike Tm/Tlm which reset at BT.
+                stack.append((replace(gs), replace(ts)))
             elif op == "Q":
                 if stack:
-                    gs = stack.pop()
+                    gs, ts = stack.pop()
             elif op == "cm":
                 gs.ctm = Mat.from_seq(ops) @ gs.ctm
             elif op == "w":
@@ -226,8 +229,13 @@ def extract(path) -> DocumentContent:
         raise LintInputError(f"{path}: cannot open as PDF: {e}") from e
     with pdf:
         for i, page in enumerate(pdf.pages):
-            box = [float(v) for v in page.MediaBox]
-            doc.pages.append(PageInfo(index=i, width_pt=box[2] - box[0], height_pt=box[3] - box[1]))
+            try:
+                box = [float(v) for v in page.MediaBox]
+                doc.pages.append(PageInfo(index=i, width_pt=box[2] - box[0], height_pt=box[3] - box[1]))
+            except Exception as e:
+                doc.parse_errors.append((i, f"{type(e).__name__}: {e}"))
+                doc.pages.append(PageInfo(index=i, width_pt=0.0, height_pt=0.0))
+                continue  # no usable page geometry; skip walking this page's content
             try:
                 _Walker(doc, i).walk(page, _page_resources(page), Mat(), frozenset())
             except Exception as e:
