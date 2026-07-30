@@ -3,7 +3,10 @@ from __future__ import annotations
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QHBoxLayout, QLabel,
                                QPushButton, QSpinBox, QWidget)
+from figspec.spec import Constraints
 from figspec_designer import presets
+
+_DEFAULT_CONSTRAINTS = Constraints()
 
 
 class TopBar(QWidget):
@@ -31,13 +34,28 @@ class TopBar(QWidget):
         self.gutter_spin.setRange(0.0, 50.0)
         self.gutter_spin.setSingleStep(0.5)
         self.gutter_spin.setSuffix(" mm")
+        self.min_font_spin = QDoubleSpinBox()
+        self.min_font_spin.setRange(1.0, 72.0)
+        self.min_font_spin.setSingleStep(0.5)
+        self.min_font_spin.setSuffix(" pt")
+        self.max_font_spin = QDoubleSpinBox()
+        self.max_font_spin.setRange(1.0, 72.0)
+        self.max_font_spin.setSingleStep(0.5)
+        self.max_font_spin.setSuffix(" pt")
+        self.min_lw_spin = QDoubleSpinBox()
+        self.min_lw_spin.setRange(0.05, 10.0)
+        self.min_lw_spin.setSingleStep(0.05)
+        self.min_lw_spin.setSuffix(" pt")
         self.btn_open = QPushButton("Open…")
         self.btn_save = QPushButton("Save JSON…")
         self.btn_copy = QPushButton("Copy JSON")
 
         for label, w in [("Preset", self.preset_combo), ("Width", self.width_spin),
                          ("Height", self.height_spin), ("DPI", self.dpi_spin),
-                         ("Gutter", self.gutter_spin)]:
+                         ("Gutter", self.gutter_spin),
+                         ("Min font", self.min_font_spin),
+                         ("Max font", self.max_font_spin),
+                         ("Min line", self.min_lw_spin)]:
             lay.addWidget(QLabel(label))
             lay.addWidget(w)
         lay.addStretch(1)
@@ -46,10 +64,14 @@ class TopBar(QWidget):
 
         self.set_values("nature_double", presets.PRESETS["nature_double"],
                         presets.DEFAULT_HEIGHT_MM, presets.DEFAULT_DPI,
-                        presets.DEFAULT_GUTTER_MM)
+                        presets.DEFAULT_GUTTER_MM,
+                        _DEFAULT_CONSTRAINTS.min_font_pt,
+                        _DEFAULT_CONSTRAINTS.max_font_pt,
+                        _DEFAULT_CONSTRAINTS.min_linewidth_pt)
 
         self.preset_combo.currentTextChanged.connect(self._on_preset)
-        for spin in (self.width_spin, self.height_spin, self.gutter_spin):
+        for spin in (self.width_spin, self.height_spin, self.gutter_spin,
+                    self.min_font_spin, self.max_font_spin, self.min_lw_spin):
             spin.valueChanged.connect(lambda _=None: self.settings_changed.emit())
         self.dpi_spin.valueChanged.connect(lambda _=None: self.settings_changed.emit())
         self.btn_save.clicked.connect(self.save_requested.emit)
@@ -66,15 +88,19 @@ class TopBar(QWidget):
             self.width_spin.setEnabled(True)
         self.settings_changed.emit()
 
-    def values(self) -> tuple[str, float, float, int, float]:
+    def values(self) -> tuple[str, float, float, int, float, float, float, float]:
         return (self.preset_combo.currentText(), self.width_spin.value(),
                 self.height_spin.value(), self.dpi_spin.value(),
-                self.gutter_spin.value())
+                self.gutter_spin.value(), self.min_font_spin.value(),
+                self.max_font_spin.value(), self.min_lw_spin.value())
 
     def set_values(self, preset_key: str, width: float, height: float,
-                   dpi: int, gutter: float) -> None:
-        for w in (self.preset_combo, self.width_spin, self.height_spin,
-                  self.dpi_spin, self.gutter_spin):
+                   dpi: int, gutter: float, min_font: float, max_font: float,
+                   min_lw: float) -> None:
+        widgets = (self.preset_combo, self.width_spin, self.height_spin,
+                  self.dpi_spin, self.gutter_spin, self.min_font_spin,
+                  self.max_font_spin, self.min_lw_spin)
+        for w in widgets:
             w.blockSignals(True)
         self.preset_combo.setCurrentText(preset_key)
         self.width_spin.setValue(width)
@@ -82,6 +108,8 @@ class TopBar(QWidget):
         self.height_spin.setValue(height)
         self.dpi_spin.setValue(dpi)
         self.gutter_spin.setValue(gutter)
-        for w in (self.preset_combo, self.width_spin, self.height_spin,
-                  self.dpi_spin, self.gutter_spin):
+        self.min_font_spin.setValue(min_font)
+        self.max_font_spin.setValue(max_font)
+        self.min_lw_spin.setValue(min_lw)
+        for w in widgets:
             w.blockSignals(False)

@@ -21,6 +21,7 @@ class Canvas(QWidget):
         self._page: QWidget | None = None
         self._panels: dict[str, PanelWidget] = {}
         self._splitters: dict[tuple[int, ...], GutterSplitter] = {}
+        self._selected_id: str | None = None
         self.px_per_mm = 1.0
         self._feedback = QLabel(self)
         self._feedback.setStyleSheet(
@@ -39,6 +40,7 @@ class Canvas(QWidget):
         self._rebuild()
 
     def apply_selection(self, panel_id: str | None) -> None:
+        self._selected_id = panel_id
         for pid, w in self._panels.items():
             w.set_selected(pid == panel_id)
 
@@ -74,6 +76,10 @@ class Canvas(QWidget):
         content.setGeometry(0, 0, page_w, page_h)
         self._page.show()
         content.show()
+        # _rebuild() recreates fresh, unselected PanelWidgets -- reapply the
+        # prior selection (apply_selection() also re-sets self._selected_id,
+        # which is a no-op here since it's already the current value).
+        self.apply_selection(self._selected_id)
         self._feedback.raise_()
 
     def _build_node(self, node: Node, path: tuple[int, ...],
@@ -99,7 +105,6 @@ class Canvas(QWidget):
     def _axis_mm(self, node: Node, path: tuple[int, ...]) -> float:
         """Length in mm of this splitter's axis, derived from the flattened rects."""
         rects = {r.panel_id: r for r in self._doc.panel_rects()}
-        first = next(iter(self._iter_node_panels(node)))
         last_rects = [rects[p.id] for p in self._iter_node_panels(node)]
         if node.orientation == "row":
             x0 = min(r.x_mm for r in last_rects)

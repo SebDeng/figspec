@@ -52,7 +52,7 @@ auto reading-order labels (a, b, c…) and per-panel mm / px / figsize values.
 Run from source:
 
 ```bash
-pip install -e designer
+pip install -e . && pip install -e designer
 python -m figspec_designer
 ```
 

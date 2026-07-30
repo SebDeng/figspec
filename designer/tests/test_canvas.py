@@ -70,3 +70,17 @@ def test_selection_highlight(qtbot):
     assert canvas.panel_widgets()[pid].property("selected") is True
     canvas.apply_selection(None)
     assert canvas.panel_widgets()[pid].property("selected") is False
+
+
+def test_selection_persists_across_rebuild(qtbot):
+    canvas = Canvas()
+    qtbot.addWidget(canvas)
+    canvas.resize(800, 600)
+    doc = _doc_two_panels()
+    canvas.set_document(doc)
+    pid = next(iter(canvas.panel_widgets()))
+    canvas.apply_selection(pid)
+    # simulate a rebuild (e.g. triggered by a resizeEvent): new PanelWidget
+    # instances are created, so the selection must be reapplied afterward.
+    canvas.set_document(doc)
+    assert canvas.panel_widgets()[pid].property("selected") is True

@@ -57,6 +57,9 @@ if [ "$SKIP_SIGN" -eq 0 ]; then
     --sign "$FIGSPEC_SIGN_IDENTITY" "$APP"
   codesign --verify --deep --strict "$APP"
 
+  echo "==> post-sign smoke test"
+  "dist/FigSpec Designer.app/Contents/MacOS/FigSpec Designer" --smoke
+
   echo "==> notarize"
   ditto -c -k --keepParent "$APP" "dist/notarize.zip"
   xcrun notarytool submit "dist/notarize.zip" \

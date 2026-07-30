@@ -1,3 +1,4 @@
+import pytest
 from figspec_designer.model.flatten import PanelRect
 from figspec_designer.ui.sidebar import Sidebar
 from figspec_designer.ui.toolbar import TopBar
@@ -43,3 +44,64 @@ def test_topbar_signals(qtbot):
     tb.height_spin.setValue(120.0)
     tb.btn_save.click()
     assert "settings" in got and "save" in got
+
+
+# ---- F1: Sidebar.flush_pending -------------------------------------------
+
+def test_flush_pending_emits_only_on_real_change(qtbot):
+    sb = Sidebar()
+    qtbot.addWidget(sb)
+    sb.show_panel("p1", "a", PanelRect("p1", 0.0, 0.0, 10.0, 10.0), 300, "orig")
+    got = []
+    sb.content_hint_edited.connect(lambda pid, t: got.append((pid, t)))
+
+    sb.flush_pending()
+    assert got == []  # nothing typed -> no spurious emit
+
+    sb.hint_edit.setText("typed")
+    sb.flush_pending()
+    assert got == [("p1", "typed")]
+
+    sb.flush_pending()  # calling again with no further change -> no dup emit
+    assert got == [("p1", "typed")]
+
+
+def test_flush_pending_noop_when_no_panel_shown(qtbot):
+    sb = Sidebar()
+    qtbot.addWidget(sb)
+    got = []
+    sb.content_hint_edited.connect(lambda pid, t: got.append((pid, t)))
+    sb.hint_edit.setText("stray text")
+    sb.flush_pending()
+    assert got == []
+
+
+# ---- F5: constraints spinboxes on TopBar ----------------------------------
+
+def test_topbar_constraint_spin_defaults():
+    tb = TopBar()
+    assert tb.min_font_spin.value() == pytest.approx(5.0)
+    assert tb.max_font_spin.value() == pytest.approx(8.0)
+    assert tb.min_lw_spin.value() == pytest.approx(0.5)
+    vals = tb.values()
+    assert len(vals) == 8
+    assert vals[5:8] == pytest.approx((5.0, 8.0, 0.5))
+
+
+def test_topbar_constraint_spin_changes_emit_settings_changed(qtbot):
+    tb = TopBar()
+    qtbot.addWidget(tb)
+    got = []
+    tb.settings_changed.connect(lambda: got.append("settings"))
+    tb.min_font_spin.setValue(6.0)
+    assert "settings" in got
+    assert tb.values()[5] == pytest.approx(6.0)
+
+
+def test_topbar_set_values_syncs_constraint_spins(qtbot):
+    tb = TopBar()
+    qtbot.addWidget(tb)
+    tb.set_values("nature_double", 183.0, 120.0, 600, 4.0, 7.0, 9.0, 0.8)
+    assert tb.min_font_spin.value() == pytest.approx(7.0)
+    assert tb.max_font_spin.value() == pytest.approx(9.0)
+    assert tb.min_lw_spin.value() == pytest.approx(0.8)

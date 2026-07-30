@@ -5,7 +5,7 @@ from pathlib import Path
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (QFileDialog, QHBoxLayout, QMainWindow,
                                QMessageBox, QApplication, QVBoxLayout, QWidget)
-from figspec.spec import SpecError, Target
+from figspec.spec import Constraints, Target
 from figspec_designer.document import DesignerDocument, MissingDesignerData
 from figspec_designer.model import ops
 from figspec_designer.model.history import History
@@ -100,6 +100,11 @@ class MainWindow(QMainWindow):
     # ---- actions ----------------------------------------------------
     def do_action(self, action: str, panel_id: str | None = None) -> None:
         if action == "select":
+            # Flush any typed-but-unconfirmed content hint before the
+            # sidebar's show_panel() overwrites hint_edit with the newly
+            # selected panel's text (clicking another panel never fires
+            # QLineEdit.editingFinished on its own).
+            self.sidebar.flush_pending()
             self.selected_panel_id = panel_id
             self.canvas.apply_selection(panel_id)
             self._refresh_sidebar()
@@ -137,8 +142,10 @@ class MainWindow(QMainWindow):
             pass
 
     def _on_settings_changed(self) -> None:
-        preset, width, height, dpi, gutter = self.topbar.values()
+        (preset, width, height, dpi, gutter,
+         min_font, max_font, min_lw) = self.topbar.values()
         self.doc.target = Target(preset, width, height, dpi, gutter)
+        self.doc.constraints = Constraints(min_font, max_font, min_lw)
         self.refresh()
 
     # ---- export / open ----------------------------------------------
@@ -159,17 +166,24 @@ class MainWindow(QMainWindow):
             self.doc = DesignerDocument.from_spec_dict(data)
         except MissingDesignerData as e:
             return str(e)
-        except (SpecError, ValueError, OSError) as e:
-            # json.JSONDecodeError and the plain ValueErrors raised by
-            # model.tree.from_dict (unknown node type, bad orientation,
-            # ratio/children mismatch) are all ValueError subclasses.
+        except Exception as e:
+            # Catch-all is intentional: this function's contract is
+            # error-string-or-None, and malformed sidecar data can surface
+            # as SpecError/ValueError/OSError (bad JSON, bad target/panels)
+            # as well as TypeError/AttributeError/KeyError from a malformed
+            # "designer.tree" shape (e.g. designer: 5, tree: [...] or a
+            # string, a panel node missing "id", non-iterable "ratios").
+            # None of those should ever crash the packaged app.
             return f"cannot open: {e}"
         self.history = History(self.doc.tree)
         self.selected_panel_id = None
         self.topbar.set_values(self.doc.target.journal_preset,
                                self.doc.target.figure_width_mm,
                                self.doc.target.figure_height_mm,
-                               self.doc.target.dpi, self.doc.target.gutter_mm)
+                               self.doc.target.dpi, self.doc.target.gutter_mm,
+                               self.doc.constraints.min_font_pt,
+                               self.doc.constraints.max_font_pt,
+                               self.doc.constraints.min_linewidth_pt)
         self.refresh()
         return None
 

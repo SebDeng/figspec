@@ -52,7 +52,7 @@ mm / px / figsize 数值。
 从源码运行：
 
 ```bash
-pip install -e designer
+pip install -e . && pip install -e designer
 python -m figspec_designer
 ```
 
