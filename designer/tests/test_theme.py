@@ -28,3 +28,26 @@ def test_panel_shadow_and_repolish(qtbot):
     assert w.graphicsEffect() is eff
     assert eff.blurRadius() == 12
     theme.repolish(w)  # must not raise
+
+
+def test_panel_widget_theme_hooks(qtbot):
+    from figspec_designer.ui.panel_widget import PanelWidget
+    w = PanelWidget("p1", "a")
+    qtbot.addWidget(w)
+    assert w.findChild(QWidget, "panelActions") is not None
+    assert w.label_widget.objectName() == "panelLetter"
+    w.set_selected(True)
+    assert w.property("selected") is True  # property survives repolish path
+
+
+def test_canvas_theme_hooks(qtbot):
+    from figspec_designer.document import DesignerDocument
+    from figspec_designer.ui.canvas import Canvas
+    canvas = Canvas()
+    qtbot.addWidget(canvas)
+    canvas.resize(600, 400)
+    canvas.set_document(DesignerDocument.default())
+    page = canvas.findChild(QWidget, "page")
+    assert page is not None
+    for w in canvas.panel_widgets().values():
+        assert w.graphicsEffect() is not None  # shadow attached

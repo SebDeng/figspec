@@ -7,6 +7,7 @@ from figspec_designer.model import ops
 from figspec_designer.model.tree import Node, PanelNode
 from figspec_designer.ui.handle import GutterSplitter
 from figspec_designer.ui.panel_widget import PanelWidget
+from figspec_designer.ui.theme import panel_shadow
 
 _MARGIN_PX = 24
 
@@ -17,6 +18,7 @@ class Canvas(QWidget):
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
+        self.setAttribute(Qt.WA_StyledBackground, True)
         self._doc: DesignerDocument | None = None
         self._page: QWidget | None = None
         self._panels: dict[str, PanelWidget] = {}
@@ -24,8 +26,7 @@ class Canvas(QWidget):
         self._selected_id: str | None = None
         self.px_per_mm = 1.0
         self._feedback = QLabel(self)
-        self._feedback.setStyleSheet(
-            "background: #333; color: white; padding: 2px 6px; border-radius: 3px;")
+        self._feedback.setObjectName("dragFeedback")
         self._feedback.hide()
 
     # ---- public API -------------------------------------------------
@@ -66,7 +67,8 @@ class Canvas(QWidget):
         self.px_per_mm = self._fit_scale()
         labels = self._doc.labels()
         self._page = QWidget(self)
-        self._page.setStyleSheet("background: white; border: 1px solid #888;")
+        self._page.setObjectName("page")
+        self._page.setAttribute(Qt.WA_StyledBackground, True)
         page_w = round(t.figure_width_mm * self.px_per_mm)
         page_h = round(t.figure_height_mm * self.px_per_mm)
         self._page.setGeometry((self.width() - page_w) // 2,
@@ -87,6 +89,7 @@ class Canvas(QWidget):
         if isinstance(node, PanelNode):
             w = PanelWidget(node.id, labels.get(node.id, "?"))
             w.action.connect(self.panel_action.emit)
+            panel_shadow(w)
             self._panels[node.id] = w
             return w
         qt_orient = Qt.Horizontal if node.orientation == "row" else Qt.Vertical
