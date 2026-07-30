@@ -209,10 +209,54 @@ class _Walker:
         pass  # Task 8
 
     def _path_op(self, op, ops, gs, path_pts):
-        return path_pts  # Task 7
+        nums = [_num(v) for v in ops]
+        if op == "m" or op == "l":
+            path_pts.append(gs.ctm.apply(nums[0], nums[1]))
+        elif op == "c":
+            for i in range(0, 6, 2):
+                path_pts.append(gs.ctm.apply(nums[i], nums[i + 1]))
+        elif op == "v" or op == "y":
+            for i in range(0, 4, 2):
+                path_pts.append(gs.ctm.apply(nums[i], nums[i + 1]))
+        elif op == "re":
+            x, y, w, h = nums
+            for px, py in ((x, y), (x + w, y), (x, y + h), (x + w, y + h)):
+                path_pts.append(gs.ctm.apply(px, py))
+        elif op == "h":
+            pass
+        elif op in ("S", "s", "B", "B*", "b", "b*"):
+            if path_pts:
+                _, s_min = gs.ctm.singular_values()
+                self.doc.strokes.append(StrokePath(
+                    page_index=self.page_index,
+                    nominal_w_pt=gs.line_width,
+                    effective_w_pt=gs.line_width * s_min,
+                    bbox_pt=_bbox_union(path_pts),
+                ))
+            return []
+        elif op in ("f", "F", "f*", "n"):
+            return []
+        return path_pts
 
     def _do_xobject(self, name, resources, gs, form_stack):
-        pass  # Tasks 7-8
+        try:
+            xobj = resources["/XObject"][name]
+        except Exception:
+            return
+        subtype = str(xobj.get("/Subtype", ""))
+        if subtype == "/Image":
+            px_w, px_h = int(xobj.Width), int(xobj.Height)
+            ex = (gs.ctm.a ** 2 + gs.ctm.b ** 2) ** 0.5   # device length of unit x edge, pt
+            ey = (gs.ctm.c ** 2 + gs.ctm.d ** 2) ** 0.5
+            dpi_x = px_w / (ex / 72.0) if ex > 1e-9 else float("inf")
+            dpi_y = px_h / (ey / 72.0) if ey > 1e-9 else float("inf")
+            corners = [gs.ctm.apply(x, y) for x, y in ((0, 0), (1, 0), (0, 1), (1, 1))]
+            self.doc.images.append(PlacedImage(
+                page_index=self.page_index, px_w=px_w, px_h=px_h,
+                effective_dpi=min(dpi_x, dpi_y), bbox_pt=_bbox_union(corners),
+            ))
+        elif subtype == "/Form":
+            pass  # Task 8
 
 def _page_resources(page) -> pikepdf.Object:
     res = page.get("/Resources")

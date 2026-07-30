@@ -129,3 +129,33 @@ def test_broken_mediabox_isolated(tmp_path, monkeypatch):
     assert any(idx == 0 for idx, _msg in doc.parse_errors)
     assert doc.pages[1].width_pt == pytest.approx(120.0)
     assert doc.pages[1].height_pt == pytest.approx(140.0)
+
+def test_good_stroke(samples):
+    doc = extract(samples["good"])
+    (s,) = doc.strokes
+    assert s.nominal_w_pt == pytest.approx(0.75)
+    assert s.effective_w_pt == pytest.approx(0.75)
+
+def test_bad_stroke_scaled(samples):
+    doc = extract(samples["bad"])
+    (s,) = doc.strokes
+    assert s.effective_w_pt == pytest.approx(0.2)
+    x0, y0, x1, y1 = s.bbox_pt
+    assert x0 == pytest.approx(10 + 20 * 0.4) and x1 == pytest.approx(10 + 400 * 0.4)
+
+def test_image_dpi(tmp_path):
+    import pikepdf
+    pdf = pikepdf.Pdf.new()
+    page = pdf.add_blank_page(page_size=(300, 300))
+    img = pdf.make_stream(b"\x00" * (10 * 10),
+                          Type=pikepdf.Name.XObject, Subtype=pikepdf.Name.Image,
+                          Width=10, Height=10, ColorSpace=pikepdf.Name.DeviceGray,
+                          BitsPerComponent=8)
+    page.Resources = pikepdf.Dictionary(XObject=pikepdf.Dictionary(Im1=img))
+    # 10 px image drawn 144 pt (= 2 in) wide -> 5 dpi
+    page.Contents = pdf.make_stream(b"q 144 0 0 144 10 10 cm /Im1 Do Q")
+    p = tmp_path / "img.pdf"
+    pdf.save(p)
+    doc = extract(p)
+    (im,) = doc.images
+    assert im.px_w == 10 and im.effective_dpi == pytest.approx(5.0)
