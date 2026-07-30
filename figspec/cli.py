@@ -68,7 +68,8 @@ def _run_lint(args) -> int:
         from figspec.lint.annotate import annotate
         out = (Path(args.pdf).with_suffix(".lint.png")
                if args.annotate == "AUTO" else Path(args.annotate))
-        written = annotate(args.pdf, findings, out)
+        origins = {p.index: (p.origin_x_pt, p.origin_y_pt) for p in doc.pages}
+        written = annotate(args.pdf, findings, out, origins=origins)
         for p in written:
             print(f"annotated: {p}", file=sys.stderr)
     return exit_code(summary)

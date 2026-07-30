@@ -43,6 +43,12 @@ class PageInfo:
     index: int
     width_pt: float
     height_pt: float
+    # Render origin (lower-left corner of the box pdfium actually renders --
+    # CropBox, falling back to MediaBox). width_pt/height_pt above come from
+    # TrimBox (else MediaBox) per spec "TrimBox（缺省 MediaBox）"; these two
+    # boxes need not share an origin or size, so both are tracked separately.
+    origin_x_pt: float = 0.0
+    origin_y_pt: float = 0.0
 
 @dataclass
 class DocumentContent:
@@ -293,6 +299,20 @@ def _page_resources(page) -> pikepdf.Object:
     res = page.get("/Resources")
     return res if res is not None else pikepdf.Dictionary()
 
+def _read_box(page, key: str) -> list[float]:
+    """Read a page box array, falling back to MediaBox if `key` is absent.
+
+    Uses dict-style .get() for the optional box (TrimBox/CropBox are not
+    synthesized by qpdf on save/reload, so a genuine absence reads as None)
+    and attribute-style access for the MediaBox fallback, matching the
+    original extract() lookup (qpdf synthesizes a default MediaBox for
+    on-disk pages that omit it).
+    """
+    box = page.get(key)
+    if box is None:
+        box = page.MediaBox
+    return [float(v) for v in box]
+
 def extract(path) -> DocumentContent:
     path = Path(path)
     doc = DocumentContent()
@@ -305,11 +325,19 @@ def extract(path) -> DocumentContent:
     with pdf:
         for i, page in enumerate(pdf.pages):
             try:
-                box = [float(v) for v in page.MediaBox]
-                doc.pages.append(PageInfo(index=i, width_pt=box[2] - box[0], height_pt=box[3] - box[1]))
+                # FINAL-WIDTH geometry: TrimBox（缺省 MediaBox）.
+                tbox = _read_box(page, "/TrimBox")
+                # Render origin: the box pdfium actually rasterizes is
+                # CropBox, falling back to MediaBox.
+                cbox = _read_box(page, "/CropBox")
+                doc.pages.append(PageInfo(
+                    index=i, width_pt=tbox[2] - tbox[0], height_pt=tbox[3] - tbox[1],
+                    origin_x_pt=cbox[0], origin_y_pt=cbox[1],
+                ))
             except Exception as e:
                 doc.parse_errors.append((i, f"{type(e).__name__}: {e}"))
-                doc.pages.append(PageInfo(index=i, width_pt=0.0, height_pt=0.0))
+                doc.pages.append(PageInfo(index=i, width_pt=0.0, height_pt=0.0,
+                                          origin_x_pt=0.0, origin_y_pt=0.0))
                 continue  # no usable page geometry; skip walking this page's content
             try:
                 _Walker(doc, i).walk(page, _page_resources(page), Mat(), frozenset())

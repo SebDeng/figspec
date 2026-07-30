@@ -27,12 +27,23 @@ class Finding:
     scale: float | None = None
     effective_pt: float | None = None
 
-def _union_mm(boxes) -> tuple | None:
+def _union_mm(boxes, origin: tuple[float, float] = (0.0, 0.0)) -> tuple | None:
     if not boxes:
         return None
-    x0 = min(b[0] for b in boxes); y0 = min(b[1] for b in boxes)
-    x1 = max(b[2] for b in boxes); y1 = max(b[3] for b in boxes)
+    ox, oy = origin
+    x0 = min(b[0] for b in boxes) - ox; y0 = min(b[1] for b in boxes) - oy
+    x1 = max(b[2] for b in boxes) - ox; y1 = max(b[3] for b in boxes) - oy
     return tuple(round(pt_to_mm(v), 2) for v in (x0, y0, x1, y1))
+
+def _page_origin(doc, page_index: int) -> tuple[float, float]:
+    """Render-origin (CropBox else MediaBox lower-left) for a page index,
+    so bbox_mm is reported relative to the canvas pdfium/annotate() render,
+    not raw (possibly non-zero-origin) absolute PDF user-space coordinates.
+    """
+    if 0 <= page_index < len(doc.pages):
+        p = doc.pages[page_index]
+        return (p.origin_x_pt, p.origin_y_pt)
+    return (0.0, 0.0)
 
 def _check_font(doc, cfg):
     bad = [r for r in doc.text_runs if r.effective_pt < cfg.min_font_pt - EPS]
@@ -45,16 +56,17 @@ def _check_font(doc, cfg):
         groups.setdefault((r.page_index, round(r.nominal_pt, 2), round(r.scale, 3)), []).append(r)
     for (page, nominal, scale), runs in sorted(groups.items()):
         eff = nominal * scale
+        # JSON evidence must be FULL (spec section 4, "JSON 全量") -- one
+        # line per violating run, no cap and no "...and N more" summary.
+        # render_text() is solely responsible for display truncation.
         ev = [f"page {page + 1}: {r.text!r} nominal {r.nominal_pt:g} pt x scale "
-              f"{r.scale:.3f} = {r.effective_pt:.2f} pt" for r in runs[:3]]
-        if len(runs) > 3:
-            ev.append(f"...and {len(runs) - 3} more runs at this size")
+              f"{r.scale:.3f} = {r.effective_pt:.2f} pt" for r in runs]
         yield Finding(
             "FONT-EFFECTIVE", "FAIL",
             f"Text effective size {eff:.2f} pt below {cfg.min_font_pt:g} pt minimum "
             f"({len(runs)} run(s))",
             evidence=ev, page=page, boxes_pt=[r.bbox_pt for r in runs],
-            bbox_mm=_union_mm([r.bbox_pt for r in runs]),
+            bbox_mm=_union_mm([r.bbox_pt for r in runs], _page_origin(doc, page)),
             nominal_pt=nominal, scale=scale, effective_pt=round(eff, 2),
         )
 
@@ -76,12 +88,17 @@ def _check_linewidth(doc, cfg):
         else:
             msg = (f"Stroke effective width {eff:.2f} pt below "
                    f"{cfg.min_linewidth_pt:g} pt minimum ({len(strokes)} stroke(s))")
+        # message stays a single summary line; evidence gets one full line
+        # per stroke group member (page + nominal + scale + effective) for
+        # consistency with _check_font's per-run evidence (Finding 2).
+        ev = [f"page {page + 1}: nominal {s.nominal_w_pt:g} pt x scale "
+              f"{(s.effective_w_pt / s.nominal_w_pt) if s.nominal_w_pt > 0 else 1.0:.3f} "
+              f"= {s.effective_w_pt:.2f} pt" for s in strokes]
         yield Finding(
             "LINEWIDTH-EFFECTIVE", "FAIL", msg,
-            evidence=[f"page {page + 1}: nominal {nominal:g} pt x scale {scale:.3f} "
-                      f"= {eff:.2f} pt"],
+            evidence=ev,
             page=page, boxes_pt=[s.bbox_pt for s in strokes],
-            bbox_mm=_union_mm([s.bbox_pt for s in strokes]),
+            bbox_mm=_union_mm([s.bbox_pt for s in strokes], _page_origin(doc, page)),
             nominal_pt=nominal, scale=scale, effective_pt=round(eff, 2),
         )
 
@@ -122,7 +139,8 @@ def _check_raster(doc, cfg):
             "RASTER-DPI", "WARN",
             f"Raster image {im.px_w}x{im.px_h}px displayed at "
             f"{im.effective_dpi:.0f} dpi effective (below {cfg.min_raster_dpi:g} dpi)",
-            page=im.page_index, boxes_pt=[im.bbox_pt], bbox_mm=_union_mm([im.bbox_pt]),
+            page=im.page_index, boxes_pt=[im.bbox_pt],
+            bbox_mm=_union_mm([im.bbox_pt], _page_origin(doc, im.page_index)),
             effective_pt=None,
         )
 

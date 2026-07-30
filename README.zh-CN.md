@@ -32,6 +32,7 @@ figspec lint --self-test
 | FINAL-WIDTH | 页面宽度与 --width 相符（+/- 2 mm） | WARN |
 | TEXT-PRESENT | 文档中存在文本对象（未被轮廓化或栅格化） | WARN |
 | RASTER-DPI | 放置的位图在显示尺寸下 >= 300 dpi | WARN |
+| PAGE-PARSE | 页面内容解析无误（正常时为 PASS，每个仅部分解析成功的页面为 WARN） | WARN |
 
 退出码：0 表示可提交，1 表示存在问题，2 表示输入错误。`--strict` 会将 WARN
 提升为不可提交。JSON 结果中的每条 finding 包含

@@ -130,6 +130,56 @@ def test_broken_mediabox_isolated(tmp_path, monkeypatch):
     assert doc.pages[1].width_pt == pytest.approx(120.0)
     assert doc.pages[1].height_pt == pytest.approx(140.0)
 
+def test_trimbox_preferred_over_mediabox(tmp_path):
+    # Finding 1: FINAL-WIDTH must prefer TrimBox over MediaBox. A bleed
+    # MediaBox of 560x300 pt with a TrimBox of [20 20 538.7 280]
+    # (518.7 pt wide, ~183mm) must yield PageInfo geometry from the TrimBox.
+    pdf = pikepdf.Pdf.new()
+    page = pdf.add_blank_page(page_size=(560, 300))
+    page.TrimBox = pikepdf.Array([20, 20, 538.7, 280])
+    path = tmp_path / "trimbox.pdf"
+    pdf.save(path)
+
+    doc = extract(path)
+    assert doc.pages[0].width_pt == pytest.approx(518.7)
+    assert doc.pages[0].height_pt == pytest.approx(260.0)
+
+def test_mediabox_used_when_no_trimbox(tmp_path):
+    pdf = pikepdf.Pdf.new()
+    pdf.add_blank_page(page_size=(400, 250))
+    path = tmp_path / "notrimbox.pdf"
+    pdf.save(path)
+
+    doc = extract(path)
+    assert doc.pages[0].width_pt == pytest.approx(400.0)
+    assert doc.pages[0].height_pt == pytest.approx(250.0)
+
+def test_page_origin_from_cropbox(tmp_path):
+    # Finding 3: PageInfo carries a render origin taken from CropBox (else
+    # MediaBox) lower-left corner, independent of the TrimBox-based
+    # width/height used for FINAL-WIDTH.
+    pdf = pikepdf.Pdf.new()
+    page = pdf.add_blank_page(page_size=(300, 200))
+    page.MediaBox = pikepdf.Array([500, 500, 800, 700])
+    page.CropBox = pikepdf.Array([510, 510, 790, 690])
+    path = tmp_path / "cropbox.pdf"
+    pdf.save(path)
+
+    doc = extract(path)
+    assert doc.pages[0].origin_x_pt == pytest.approx(510.0)
+    assert doc.pages[0].origin_y_pt == pytest.approx(510.0)
+
+def test_page_origin_falls_back_to_mediabox(tmp_path):
+    pdf = pikepdf.Pdf.new()
+    page = pdf.add_blank_page(page_size=(300, 200))
+    page.MediaBox = pikepdf.Array([500, 500, 800, 700])
+    path = tmp_path / "nocropbox.pdf"
+    pdf.save(path)
+
+    doc = extract(path)
+    assert doc.pages[0].origin_x_pt == pytest.approx(500.0)
+    assert doc.pages[0].origin_y_pt == pytest.approx(500.0)
+
 def test_good_stroke(samples):
     doc = extract(samples["good"])
     (s,) = doc.strokes

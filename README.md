@@ -33,6 +33,7 @@ figspec lint --self-test
 | FINAL-WIDTH | page width matches --width (+/- 2 mm) | WARN |
 | TEXT-PRESENT | document contains text objects (not outlined/rasterized) | WARN |
 | RASTER-DPI | placed bitmaps >= 300 dpi at displayed size | WARN |
+| PAGE-PARSE | page content parsed without errors (PASS when clean, WARN per partially-analyzed page) | WARN |
 
 Exit codes: 0 ready, 1 findings, 2 input error. `--strict` promotes WARN.
 JSON findings use `{check_id, level, message, evidence}` plus
