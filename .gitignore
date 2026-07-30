@@ -1,0 +1,8 @@
+.venv/
+__pycache__/
+*.egg-info/
+dist/
+tests/data/
+*.lint.png
+*.lint.json
+.DS_Store
