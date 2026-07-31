@@ -6,6 +6,7 @@ from PySide6.QtCore import Qt, QSettings
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (QFileDialog, QHBoxLayout, QInputDialog, QMainWindow,
                                QMessageBox, QApplication, QVBoxLayout, QWidget)
+from figspec.snippet import generate_snippet
 from figspec.spec import Constraints, Target
 from figspec_designer.document import DesignerDocument, MissingDesignerData
 from figspec_designer.model import ops
@@ -62,6 +63,7 @@ class MainWindow(QMainWindow):
         self.sidebar.square_requested.connect(self._on_square)
         self.sidebar.aspect_lock_toggled.connect(self._on_aspect_lock)
         self.sidebar.placement_copy_requested.connect(self.copy_placement_table)
+        self.sidebar.snippet_copy_requested.connect(self.copy_snippet)
 
         self._make_menus()
         # Init-time doc/topbar sync only -- NOT _on_settings_changed(),
@@ -89,6 +91,7 @@ class MainWindow(QMainWindow):
         act(file_menu, "Save As…", "Ctrl+Shift+S", self.save_as)
         act(file_menu, "Copy JSON", "Ctrl+Shift+C", self.copy_json)
         act(file_menu, "Copy Placement Table", None, self.copy_placement_table)
+        act(file_menu, "Copy matplotlib Snippet", None, self.copy_snippet)
         edit_menu = self.menuBar().addMenu("Edit")
         act(edit_menu, "Undo", "Ctrl+Z", self.undo)
         act(edit_menu, "Redo", "Ctrl+Shift+Z", self.redo)
@@ -398,6 +401,12 @@ class MainWindow(QMainWindow):
                         f"{rect.y_mm:.2f}\t{rect.w_mm:.2f}\t{rect.h_mm:.2f}")
         QApplication.clipboard().setText("\n".join(rows) + "\n")
         self.statusBar().showMessage("Placement table copied", 3000)
+
+    def copy_snippet(self) -> None:
+        name = self.current_path.name if self.current_path else "Untitled"
+        QApplication.clipboard().setText(
+            generate_snippet(self.doc.to_spec_dict(), name))
+        self.statusBar().showMessage("matplotlib snippet copied", 3000)
 
     def save_json(self, path) -> None:
         Path(path).write_text(self.export_json_text())

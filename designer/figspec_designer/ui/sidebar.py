@@ -31,6 +31,7 @@ class Sidebar(QWidget):
     square_requested = Signal(str)  # (panel_id)
     aspect_lock_toggled = Signal(str, object)  # (panel_id, float|None)
     placement_copy_requested = Signal()
+    snippet_copy_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -121,6 +122,10 @@ class Sidebar(QWidget):
         self.btn_copy_placement.setObjectName("copyPlacementButton")
         outer.addWidget(self.btn_copy_placement)
 
+        self.btn_copy_snippet = QPushButton("Copy matplotlib Snippet")
+        self.btn_copy_snippet.setObjectName("copySnippetButton")
+        outer.addWidget(self.btn_copy_snippet)
+
         # Stretch
         outer.addStretch(1)
 
@@ -135,6 +140,7 @@ class Sidebar(QWidget):
         self.chk_aspect_lock.toggled.connect(self._emit_aspect_lock)
         self.chk_aspect_lock.setEnabled(False)
         self.btn_copy_placement.clicked.connect(self.placement_copy_requested.emit)
+        self.btn_copy_snippet.clicked.connect(self.snippet_copy_requested.emit)
 
     def _emit_hint(self) -> None:
         if self._panel_id is None:
