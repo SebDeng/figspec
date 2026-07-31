@@ -1,5 +1,6 @@
 """Assembles canvas + sidebar + top bar and owns the document/undo state."""
 from __future__ import annotations
+import dataclasses
 import json
 from pathlib import Path
 from PySide6.QtCore import Qt, QSettings
@@ -8,7 +9,7 @@ from PySide6.QtWidgets import (QDialog, QFileDialog, QHBoxLayout, QInputDialog,
                                QMainWindow, QMessageBox, QApplication,
                                QVBoxLayout, QWidget)
 from figspec.snippet import generate_snippet
-from figspec.spec import Constraints, Target
+from figspec.spec import Target
 from figspec.templates import TEMPLATES
 from figspec_designer.document import DesignerDocument, MissingDesignerData
 from figspec_designer.model import ops
@@ -420,7 +421,12 @@ class MainWindow(QMainWindow):
         (preset, width, height, dpi, gutter,
          min_font, max_font, min_lw) = self.topbar.values()
         self.doc.target = Target(preset, width, height, dpi, gutter)
-        self.doc.constraints = Constraints(min_font, max_font, min_lw)
+        # replace(), not Constraints(...) -- the topbar only owns these three
+        # fields; a fresh Constraints() would silently reset the rest (e.g.
+        # min_effective_dpi) to their dataclass defaults on every edit.
+        self.doc.constraints = dataclasses.replace(
+            self.doc.constraints, min_font_pt=min_font, max_font_pt=max_font,
+            min_linewidth_pt=min_lw)
         self.refresh()
 
     def _on_settings_changed(self) -> None:
