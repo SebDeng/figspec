@@ -306,12 +306,23 @@ class MainWindow(QMainWindow):
 
     def undo(self) -> None:
         self._cancel_swap_pending()
+        before = self.doc.tree
         self.doc.tree = self.history.undo()
+        # History.undo() at the boundary (nothing left to undo) returns the
+        # same tree unchanged -- don't dirty an already-clean doc for a
+        # no-op. Otherwise content now differs from what's on disk (an
+        # undo back to a previously-saved state still counts as dirty here
+        # -- see _on_size_edited/set_ratios etc.; no save-point index).
+        if self.doc.tree is not before:
+            self._mark_dirty()
         self.refresh()
 
     def redo(self) -> None:
         self._cancel_swap_pending()
+        before = self.doc.tree
         self.doc.tree = self.history.redo()
+        if self.doc.tree is not before:
+            self._mark_dirty()
         self.refresh()
 
     def _on_hint_edited(self, panel_id: str, text: str) -> None:

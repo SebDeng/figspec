@@ -35,6 +35,47 @@ def test_undo_redo(qtbot):
     assert len(list(iter_panels(win.doc.tree))) == 2
 
 
+# ---- Important 2: undo/redo after save must not leave doc marked clean ----
+
+def test_undo_after_save_marks_dirty(qtbot, tmp_path, monkeypatch):
+    win = MainWindow()
+    qtbot.addWidget(win)
+    win.do_action("split_right", _first_panel(win))
+    monkeypatch.setattr(win, "_ask_save_path", lambda: tmp_path / "f.json")
+    assert win.save() is True
+    assert win.dirty is False
+    win.undo()
+    assert win.dirty is True  # content now differs from what's on disk
+
+
+def test_undo_with_nothing_to_undo_does_not_mark_dirty(qtbot):
+    win = MainWindow()
+    qtbot.addWidget(win)
+    assert win.dirty is False
+    win.undo()  # empty history -- History.undo() is a no-op at the boundary
+    assert win.dirty is False
+
+
+def test_redo_after_save_marks_dirty(qtbot, tmp_path, monkeypatch):
+    win = MainWindow()
+    qtbot.addWidget(win)
+    win.do_action("split_right", _first_panel(win))
+    win.undo()
+    monkeypatch.setattr(win, "_ask_save_path", lambda: tmp_path / "f.json")
+    assert win.save() is True
+    assert win.dirty is False
+    win.redo()
+    assert win.dirty is True
+
+
+def test_redo_with_nothing_to_redo_does_not_mark_dirty(qtbot):
+    win = MainWindow()
+    qtbot.addWidget(win)
+    assert win.dirty is False
+    win.redo()  # nothing was undone -- no-op
+    assert win.dirty is False
+
+
 def test_apply_ratios_updates_model(qtbot):
     win = MainWindow()
     qtbot.addWidget(win)
