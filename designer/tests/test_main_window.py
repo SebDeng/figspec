@@ -35,6 +35,47 @@ def test_undo_redo(qtbot):
     assert len(list(iter_panels(win.doc.tree))) == 2
 
 
+# ---- Important 2: undo/redo after save must not leave doc marked clean ----
+
+def test_undo_after_save_marks_dirty(qtbot, tmp_path, monkeypatch):
+    win = MainWindow()
+    qtbot.addWidget(win)
+    win.do_action("split_right", _first_panel(win))
+    monkeypatch.setattr(win, "_ask_save_path", lambda: tmp_path / "f.json")
+    assert win.save() is True
+    assert win.dirty is False
+    win.undo()
+    assert win.dirty is True  # content now differs from what's on disk
+
+
+def test_undo_with_nothing_to_undo_does_not_mark_dirty(qtbot):
+    win = MainWindow()
+    qtbot.addWidget(win)
+    assert win.dirty is False
+    win.undo()  # empty history -- History.undo() is a no-op at the boundary
+    assert win.dirty is False
+
+
+def test_redo_after_save_marks_dirty(qtbot, tmp_path, monkeypatch):
+    win = MainWindow()
+    qtbot.addWidget(win)
+    win.do_action("split_right", _first_panel(win))
+    win.undo()
+    monkeypatch.setattr(win, "_ask_save_path", lambda: tmp_path / "f.json")
+    assert win.save() is True
+    assert win.dirty is False
+    win.redo()
+    assert win.dirty is True
+
+
+def test_redo_with_nothing_to_redo_does_not_mark_dirty(qtbot):
+    win = MainWindow()
+    qtbot.addWidget(win)
+    assert win.dirty is False
+    win.redo()  # nothing was undone -- no-op
+    assert win.dirty is False
+
+
 def test_apply_ratios_updates_model(qtbot):
     win = MainWindow()
     qtbot.addWidget(win)
@@ -42,6 +83,22 @@ def test_apply_ratios_updates_model(qtbot):
     win.apply_ratios((), (0.6, 0.4))
     rects = sorted(win.doc.panel_rects(), key=lambda r: r.x_mm)
     assert abs(rects[0].w_mm - (183 - 4) * 0.6) < 1e-6
+
+
+# ---- Important 3a: split_right/split_down route real page dims into the
+# ops.split_panel min-size guard ---------------------------------------------
+
+def test_split_right_enforces_min_size_guard_end_to_end(qtbot):
+    win = MainWindow()
+    qtbot.addWidget(win)
+    first = _first_panel(win)
+    win.do_action("split_right", first)  # 2 panels, default 183x100mm/gutter4
+    win.apply_ratios((), (5 / 179, 174 / 179))  # pin `first` to exactly 5mm wide
+    rects = {r.panel_id: r for r in win.doc.panel_rects()}
+    assert rects[first].w_mm == pytest.approx(5.0)
+    before_count = len(list(iter_panels(win.doc.tree)))
+    win.do_action("split_right", first)  # would shrink both halves under 5mm
+    assert len(list(iter_panels(win.doc.tree))) == before_count  # rejected
 
 
 def test_export_valid_and_copy(qtbot):
@@ -89,6 +146,18 @@ def test_open_with_malformed_tree_reports_error(qtbot, tmp_path):
     err = win.open_json(p)
     assert err is not None
     assert len(list(iter_panels(win.doc.tree))) >= 1
+
+
+# ---- Minor 8: "Save JSON…" no longer promises a dialog it doesn't show ---
+
+def test_save_menu_label_has_no_ellipsis(qtbot):
+    from PySide6.QtGui import QAction
+    win = MainWindow()
+    qtbot.addWidget(win)
+    texts = {a.text() for a in win.findChildren(QAction)}
+    assert "Save JSON" in texts
+    assert "Save JSON…" not in texts
+    assert "Save As…" in texts  # unchanged -- it does show a dialog
 
 
 def test_smoke_flag():

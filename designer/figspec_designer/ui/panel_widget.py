@@ -1,7 +1,7 @@
 """A single panel on the canvas: big label, hover action buttons."""
 from __future__ import annotations
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QToolButton,
+from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QMenu, QToolButton,
                                QVBoxLayout, QWidget)
 from figspec_designer.ui.theme import repolish
 
@@ -13,16 +13,24 @@ _BTN_SPECS = [("btn_split_right", "▸", "split_right", "Split right (Cmd+D)"),
 class PanelWidget(QFrame):
     action = Signal(str, str)  # (action, panel_id)
 
-    def __init__(self, panel_id: str, label_text: str, parent: QWidget | None = None):
+    def __init__(self, panel_id: str, label_text: str, parent: QWidget | None = None,
+                *, aspect_violated: bool = False):
         super().__init__(parent)
         self.panel_id = panel_id
         self.setObjectName("panel")
         self.setProperty("selected", False)
+        self.setProperty("swapArmed", False)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(4, 4, 4, 4)
 
         bar = QHBoxLayout()
+
+        self.aspect_badge = QLabel("aspect", self)
+        self.aspect_badge.setObjectName("aspectBadge")
+        self.aspect_badge.setVisible(aspect_violated)
+        bar.addWidget(self.aspect_badge)
+
         bar.addStretch(1)
 
         # Create panelActions container
@@ -61,6 +69,13 @@ class PanelWidget(QFrame):
         self.setProperty("selected", bool(on))
         repolish(self)
 
+    def set_swap_armed(self, on: bool) -> None:
+        self.setProperty("swapArmed", bool(on))
+        repolish(self)
+
+    def set_aspect_violation(self, violated: bool) -> None:
+        self.aspect_badge.setVisible(violated)
+
     def enterEvent(self, event) -> None:
         self._actions.setVisible(True)
         super().enterEvent(event)
@@ -72,3 +87,14 @@ class PanelWidget(QFrame):
     def mousePressEvent(self, event) -> None:
         self.action.emit("select", self.panel_id)
         super().mousePressEvent(event)
+
+    def contextMenuEvent(self, event) -> None:
+        menu = QMenu(self)
+        menu.addAction("Split Right N…",
+                       lambda: self.action.emit("split_right_n", self.panel_id))
+        menu.addAction("Split Down N…",
+                       lambda: self.action.emit("split_down_n", self.panel_id))
+        menu.addAction("Equalize",
+                       lambda: self.action.emit("equalize", self.panel_id))
+        menu.addAction("Swap", lambda: self.action.emit("swap", self.panel_id))
+        menu.exec(event.globalPos())

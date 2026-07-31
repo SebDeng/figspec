@@ -13,7 +13,11 @@ _MARGIN_PX = 24
 
 
 class Canvas(QWidget):
-    panel_action = Signal(str, str)      # (action, panel_id)
+    # panel_id is `object`, not `str` -- a str-typed Qt signal coerces a
+    # Python None argument to "" during marshaling, which would silently
+    # turn our blank-canvas-click "select nothing" (None) into a bogus
+    # empty-string panel id instead. `object` passes None through as-is.
+    panel_action = Signal(str, object)      # (action, panel_id | None)
     ratios_committed = Signal(tuple, tuple)  # (path, ratios)
 
     def __init__(self, parent: QWidget | None = None):
@@ -24,6 +28,7 @@ class Canvas(QWidget):
         self._panels: dict[str, PanelWidget] = {}
         self._splitters: dict[tuple[int, ...], GutterSplitter] = {}
         self._selected_id: str | None = None
+        self._swap_armed_id: str | None = None
         self.px_per_mm = 1.0
         self._feedback = QLabel(self)
         self._feedback.setObjectName("dragFeedback")
@@ -44,6 +49,14 @@ class Canvas(QWidget):
         self._selected_id = panel_id
         for pid, w in self._panels.items():
             w.set_selected(pid == panel_id)
+
+    def apply_swap_armed(self, panel_id: str | None) -> None:
+        """Mirrors apply_selection: visually marks the panel currently
+        armed for swap (MainWindow._swap_pending), or clears the cue when
+        panel_id is None."""
+        self._swap_armed_id = panel_id
+        for pid, w in self._panels.items():
+            w.set_swap_armed(pid == panel_id)
 
     # ---- geometry ---------------------------------------------------
     def _fit_scale(self) -> float:
@@ -73,7 +86,8 @@ class Canvas(QWidget):
         page_h = round(t.figure_height_mm * self.px_per_mm)
         self._page.setGeometry((self.width() - page_w) // 2,
                                (self.height() - page_h) // 2, page_w, page_h)
-        content = self._build_node(self._doc.tree, (), labels)
+        rects = {r.panel_id: r for r in self._doc.panel_rects()}
+        content = self._build_node(self._doc.tree, (), labels, rects)
         content.setParent(self._page)
         content.setGeometry(0, 0, page_w, page_h)
         self._page.show()
@@ -82,12 +96,15 @@ class Canvas(QWidget):
         # prior selection (apply_selection() also re-sets self._selected_id,
         # which is a no-op here since it's already the current value).
         self.apply_selection(self._selected_id)
+        self.apply_swap_armed(self._swap_armed_id)
         self._feedback.raise_()
 
     def _build_node(self, node: Node, path: tuple[int, ...],
-                    labels: dict[str, str]) -> QWidget:
+                    labels: dict[str, str], rects: dict) -> QWidget:
         if isinstance(node, PanelNode):
-            w = PanelWidget(node.id, labels.get(node.id, "?"))
+            violated = self._aspect_violated(node, rects)
+            w = PanelWidget(node.id, labels.get(node.id, "?"),
+                            aspect_violated=violated)
             w.action.connect(self.panel_action.emit)
             panel_shadow(w)
             self._panels[node.id] = w
@@ -97,13 +114,25 @@ class Canvas(QWidget):
         gutter_px = max(round(self._doc.target.gutter_mm * self.px_per_mm), 1)
         splitter.setHandleWidth(gutter_px)
         for i, child in enumerate(node.children):
-            splitter.addWidget(self._build_node(child, path + (i,), labels))
+            splitter.addWidget(self._build_node(child, path + (i,), labels, rects))
         total_px = round((self._axis_mm(node, path) -
                           (len(node.children) - 1) * self._doc.target.gutter_mm)
                          * self.px_per_mm)
         splitter.setSizes([max(round(r * total_px), 1) for r in node.ratios])
         self._splitters[path] = splitter
         return splitter
+
+    @staticmethod
+    def _aspect_violated(node: PanelNode, rects: dict) -> bool:
+        """True when node has an aspect_lock and its current rect's w/h ratio
+        deviates from that lock by more than 2%."""
+        if node.aspect_lock is None:
+            return False
+        rect = rects.get(node.id)
+        if rect is None or rect.h_mm <= 0:
+            return False
+        current = rect.w_mm / rect.h_mm
+        return abs(current - node.aspect_lock) / node.aspect_lock > 0.02
 
     def _axis_mm(self, node: Node, path: tuple[int, ...]) -> float:
         """Length in mm of this splitter's axis, derived from the flattened rects."""
@@ -144,14 +173,66 @@ class Canvas(QWidget):
         if total <= 0:
             return
         ratios = tuple(s / total for s in sizes_px)
+        node = ops.node_at(self._doc.tree, splitter.path)
+        avail_mm = (self._axis_mm(node, splitter.path)
+                    - (len(sizes_px) - 1) * self._doc.target.gutter_mm)
         if not alt_held:
-            node = ops.node_at(self._doc.tree, splitter.path)
-            avail_mm = (self._axis_mm(node, splitter.path)
-                        - (len(sizes_px) - 1) * self._doc.target.gutter_mm)
             ratios = ops.snap_ratios(ratios, avail_mm)
+        # Clamp AFTER snapping (not before), then renormalize. snap_ratios'
+        # own 0.5mm rounding of the *other* child's remainder can itself
+        # push an already-near-floor child back under MIN_PANEL_MM even
+        # when the pre-snap ratios were clamp-clean -- e.g. avail 50.3mm,
+        # drag to [45.3, 5.0] snaps to [45.5, 4.8]. Clamping post-snap is
+        # the only ordering that actually holds the floor; it also still
+        # runs when Alt bypasses snapping, so a free drag can't produce a
+        # <5mm panel either.
+        ratios = self._clamp_min_mm(ratios, avail_mm)
         self.ratios_committed.emit(splitter.path, ratios)
+
+    @staticmethod
+    def _clamp_min_mm(ratios: tuple[float, ...], avail_mm: float) -> tuple[float, ...]:
+        """Raise any child below ops.MIN_PANEL_MM up to exactly that size,
+        shrinking the others proportionally to absorb the difference, then
+        renormalize back to ratio-space. Runs as a small fixed-point loop
+        (bounded by len(ratios) iterations) since locking one child down to
+        the minimum can push an already-fine sibling below it in turn."""
+        n = len(ratios)
+        if avail_mm <= 0 or n * ops.MIN_PANEL_MM > avail_mm + 1e-9:
+            return ratios  # not enough room to honor the minimum for every child
+        sizes = [r * avail_mm for r in ratios]
+        locked = [False] * n
+        for _ in range(n):
+            below = [i for i in range(n)
+                     if not locked[i] and sizes[i] < ops.MIN_PANEL_MM - 1e-9]
+            if not below:
+                break
+            for i in below:
+                sizes[i] = ops.MIN_PANEL_MM
+                locked[i] = True
+            free = [i for i in range(n) if not locked[i]]
+            if not free:
+                break
+            free_total = sum(sizes[i] for i in free)
+            target = avail_mm - ops.MIN_PANEL_MM * sum(locked)
+            if free_total > 0:
+                scale = target / free_total
+                for i in free:
+                    sizes[i] *= scale
+        total = sum(sizes)
+        if total <= 0:
+            return ratios
+        return tuple(s / total for s in sizes)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         if self._doc is not None:
             self._rebuild()
+
+    def mousePressEvent(self, event) -> None:
+        # Reaches here only for a click that landed on the canvas itself --
+        # i.e. blank space outside any PanelWidget/splitter (those consume
+        # the event first). Forward as "select nothing": MainWindow treats
+        # it like clicking empty space -- deselects, and (spec A5) cancels
+        # an in-progress swap.
+        self.panel_action.emit("select", None)
+        super().mousePressEvent(event)

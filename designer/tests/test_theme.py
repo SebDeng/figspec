@@ -60,7 +60,8 @@ def test_sidebar_theme_hooks(qtbot):
     assert sb.objectName() == "sidebar"
     header = sb.findChild(QWidget, "sectionHeader")
     assert header is not None
-    assert sb.lbl_mm.objectName() == "fieldValue"
+    assert sb.spin_w.objectName() == "fieldValue"
+    assert sb.spin_h.objectName() == "fieldValue"
     assert sb.hint_edit.objectName() == "hintEdit"
 
 

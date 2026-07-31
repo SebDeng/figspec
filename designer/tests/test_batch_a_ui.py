@@ -1,0 +1,396 @@
+import types
+import pytest
+from PySide6.QtWidgets import QApplication, QMessageBox
+from figspec.layout.tree import iter_panels
+from figspec_designer.ui.main_window import MainWindow
+
+# QSettings isolation for this module is provided by the suite-wide
+# autouse fixture in designer/tests/conftest.py (_isolated_designer_settings);
+# no file-local duplicate here.
+
+# Captured at collection time -- i.e. BEFORE conftest's autouse
+# _no_blocking_close_dialog fixture patches MainWindow.confirm_discard for
+# any given test -- so tests that want to exercise the real
+# confirm_discard() implementation (bypassing that default) can rebind it.
+_REAL_CONFIRM_DISCARD = MainWindow.confirm_discard
+
+
+def _win(qtbot):
+    win = MainWindow()
+    qtbot.addWidget(win)
+    first = next(iter_panels(win.doc.tree)).id
+    win.do_action("split_right", first)
+    return win, first
+
+
+def test_sidebar_size_edit_resizes(qtbot):
+    win, first = _win(qtbot)
+    win.do_action("select", first)
+    win.sidebar.spin_w.setValue(100.0)
+    win.sidebar.spin_w.editingFinished.emit()
+    rects = {r.panel_id: r for r in win.doc.panel_rects()}
+    assert rects[first].w_mm == pytest.approx(100.0)
+
+
+def test_sidebar_shows_position_and_aspect(qtbot):
+    win, first = _win(qtbot)
+    win.do_action("select", first)
+    assert win.sidebar.lbl_xy.text().startswith("0.0, 0.0")
+    assert ":" in win.sidebar.lbl_aspect.text() or "." in win.sidebar.lbl_aspect.text()
+
+
+def test_make_square(qtbot):
+    win, first = _win(qtbot)
+    win.do_action("split_down", [p.id for p in iter_panels(win.doc.tree)
+                                 if p.id != first][0])
+    win.do_action("select", first)
+    win.sidebar.btn_square.click()
+    rects = {r.panel_id: r for r in win.doc.panel_rects()}
+    assert rects[first].h_mm == pytest.approx(rects[first].w_mm, abs=0.05)
+
+
+def test_placement_table(qtbot):
+    win, first = _win(qtbot)
+    win.copy_placement_table()
+    text = QApplication.clipboard().text()
+    lines = text.strip().split("\n")
+    assert lines[0] == "label\tx_mm\ty_mm\tw_mm\th_mm"
+    assert len(lines) == 3  # header + 2 panels
+    assert lines[1].startswith("a\t0.00\t0.00\t")
+
+
+def test_rejected_size_edit_does_not_cause_spurious_reemit(qtbot):
+    # Regression: Sidebar._emit_size used to write self._shown_w/_shown_h
+    # AFTER emitting size_edited. When the edit is rejected, the synchronous
+    # emit -> MainWindow._on_size_edited -> _refresh_sidebar -> show_panel
+    # chain correctly resets _shown_w back to the real value, but control
+    # then returns to _emit_size and clobbers that reset with the rejected
+    # (stale) value. The next editingFinished -- even with no user change --
+    # then spuriously re-emits size_edited and pushes a redundant undo entry.
+    win, first = _win(qtbot)
+    win.do_action("select", first)
+    depth_before = len(win.history._undo)
+    got = []
+    win.sidebar.size_edited.connect(lambda pid, axis, v: got.append((pid, axis, v)))
+
+    win.sidebar.spin_w.setValue(500.0)  # out of range for this layout -> rejected
+    win.sidebar.spin_w.editingFinished.emit()
+    assert len(got) == 1  # the rejected attempt itself still emits once
+    assert win.sidebar.spin_w.value() == pytest.approx(89.5)  # snapped back
+    assert len(win.history._undo) == depth_before  # rejected -> no tree push
+
+    win.sidebar.spin_w.editingFinished.emit()  # no further user change
+    assert len(got) == 1  # must NOT spuriously re-emit
+    assert len(win.history._undo) == depth_before  # must NOT push a redundant entry
+
+
+def test_aspect_lock_roundtrips_via_export(qtbot):
+    win, first = _win(qtbot)
+    win.do_action("select", first)
+    win.sidebar.chk_aspect_lock.setChecked(True)
+    tree_panel = next(p for p in iter_panels(win.doc.tree) if p.id == first)
+    assert tree_panel.aspect_lock is not None
+
+
+# ---- amber aspectBadge: canvas -> PanelWidget wiring -----------------------
+
+def test_aspect_badge_hidden_without_lock(qtbot):
+    win, first = _win(qtbot)
+    widget = win.canvas.panel_widgets()[first]
+    assert widget.aspect_badge.objectName() == "aspectBadge"
+    assert not widget.aspect_badge.isVisibleTo(widget)
+
+
+def test_aspect_badge_visible_on_violation(qtbot):
+    win, first = _win(qtbot)
+    win.do_action("select", first)
+    win.sidebar.chk_aspect_lock.setChecked(True)  # locks at current ratio (~0.895)
+    win.sidebar.spin_w.setValue(150.0)  # blows well past the 2% tolerance
+    win.sidebar.spin_w.editingFinished.emit()
+    widget = win.canvas.panel_widgets()[first]
+    assert widget.aspect_badge.isVisibleTo(widget)
+
+
+def test_aspect_badge_hidden_when_within_tolerance(qtbot):
+    win, first = _win(qtbot)
+    win.do_action("select", first)
+    win.sidebar.chk_aspect_lock.setChecked(True)
+    widget = win.canvas.panel_widgets()[first]
+    assert not widget.aspect_badge.isVisibleTo(widget)
+
+
+# ---- Task 3: file lifecycle -------------------------------------------------
+
+def test_dirty_flag_and_title(qtbot, tmp_path):
+    win, first = _win(qtbot)
+    assert win.dirty is True  # split marked dirty
+    p = tmp_path / "f.figspec.json"
+    win.save_json(p)  # low-level write does NOT manage state
+    win.current_path = p
+    win.save()
+    assert win.dirty is False
+    assert "•" not in win.windowTitle()
+    win.do_action("split_down", first)
+    assert win.dirty is True and "•" in win.windowTitle()
+
+
+def test_save_silent_with_path(qtbot, tmp_path):
+    win, _ = _win(qtbot)
+    p = tmp_path / "f.figspec.json"
+    win.current_path = p
+    assert win.save() is True
+    assert p.exists()
+
+
+def test_recent_files_tracked(qtbot, tmp_path):
+    win, _ = _win(qtbot)
+    p = tmp_path / "f.figspec.json"
+    win.current_path = p
+    win.save()
+    assert str(p) in win.recent_files()
+
+
+def test_open_marks_clean_and_recent(qtbot, tmp_path):
+    win, _ = _win(qtbot)
+    p = tmp_path / "f.figspec.json"
+    win.current_path = p
+    win.save()
+    win2 = MainWindow()
+    qtbot.addWidget(win2)
+    assert win2.open_json(p) is None
+    assert win2.dirty is False and win2.current_path == p
+
+
+# ---- Task 3 supplementary: close guard + recents (Global Constraints,
+# not covered by the brief's literal Step-1 block) --------------------------
+
+def test_confirm_discard_clean_returns_true_without_dialog(qtbot):
+    win, _ = _win(qtbot)
+    win.dirty = False
+    assert win.confirm_discard() is True  # no QMessageBox needed when clean
+
+
+class _FakeCloseEvent:
+    def __init__(self):
+        self.accepted = None
+
+    def accept(self):
+        self.accepted = True
+
+    def ignore(self):
+        self.accepted = False
+
+
+def test_close_event_cancel_ignores(qtbot, monkeypatch):
+    win, _ = _win(qtbot)
+    assert win.dirty is True
+    monkeypatch.setattr(win, "confirm_discard", lambda: False)  # user hit Cancel
+    event = _FakeCloseEvent()
+    win.closeEvent(event)
+    assert event.accepted is False
+
+
+def test_close_event_discard_or_save_accepts(qtbot, monkeypatch):
+    win, _ = _win(qtbot)
+    monkeypatch.setattr(win, "confirm_discard", lambda: True)  # Save or Discard
+    event = _FakeCloseEvent()
+    win.closeEvent(event)
+    assert event.accepted is True
+
+
+def test_recent_files_dedup_mru_order_and_max_five(qtbot, tmp_path):
+    win, _ = _win(qtbot)
+    paths = [tmp_path / f"f{i}.json" for i in range(6)]
+    for p in paths:
+        win.current_path = p
+        win.save()
+    # max 5, most-recent first
+    assert win.recent_files() == [str(p) for p in reversed(paths[1:])]
+    # re-saving an already-recent path moves it to front without duplicating
+    win.current_path = paths[3]
+    win.save()
+    assert win.recent_files()[0] == str(paths[3])
+    assert win.recent_files().count(str(paths[3])) == 1
+    assert len(win.recent_files()) == 5
+
+
+def test_recent_menu_clear_empties_recent_files(qtbot, tmp_path):
+    win, _ = _win(qtbot)
+    p = tmp_path / "f.figspec.json"
+    win.current_path = p
+    win.save()
+    assert win.recent_files() == [str(p)]
+    win._clear_recent()
+    assert win.recent_files() == []
+
+
+# ---- Post-review fixes ------------------------------------------------------
+
+def test_fresh_window_is_not_dirty(qtbot):
+    win = MainWindow()
+    qtbot.addWidget(win)
+    assert win.dirty is False
+    assert "•" not in win.windowTitle()
+
+
+def test_open_recent_respects_confirm_discard(qtbot, tmp_path, monkeypatch):
+    win, _ = _win(qtbot)
+    assert win.dirty is True
+    doc_before = win.doc
+    other_path = tmp_path / "other.figspec.json"
+    other_path.write_text(win.export_json_text())
+
+    monkeypatch.setattr(win, "confirm_discard", lambda: False)  # user hit Cancel
+    win._open_recent(str(other_path))
+    assert win.doc is doc_before  # cancelled -- current doc untouched
+
+    monkeypatch.setattr(win, "confirm_discard", lambda: True)  # Save or Discard
+    win._open_recent(str(other_path))
+    assert win.doc is not doc_before  # proceeded -- open_json replaced doc
+
+
+def test_save_returns_false_when_ask_save_path_cancelled(qtbot, monkeypatch):
+    win, _ = _win(qtbot)
+    win.current_path = None
+    monkeypatch.setattr(win, "_ask_save_path", lambda: None)  # dialog cancelled
+    assert win.save() is False
+
+
+def test_confirm_discard_save_choice_routes_through_save(qtbot, monkeypatch):
+    win, _ = _win(qtbot)
+    assert win.dirty is True
+    # Rebind the real (unpatched-by-conftest) implementation to this
+    # instance so this test exercises confirm_discard()'s actual
+    # Save/Discard/Cancel logic rather than conftest's always-True default.
+    monkeypatch.setattr(win, "confirm_discard",
+                        types.MethodType(_REAL_CONFIRM_DISCARD, win))
+    monkeypatch.setattr(QMessageBox, "exec", lambda self: QMessageBox.Save)
+    save_calls = []
+    monkeypatch.setattr(win, "save", lambda: save_calls.append(True) or True)
+    assert win.confirm_discard() is True
+    assert save_calls == [True]
+
+
+# ---- Important 1: save-failure during close/⌘S must not silently discard --
+
+def _raise_oserror(path):
+    raise OSError("Read-only file system")
+
+
+def test_save_write_failure_returns_false_keeps_dirty_reports_error(qtbot, monkeypatch):
+    win, _ = _win(qtbot)
+    win.current_path = "/nonexistent/dir/f.json"  # save_json below never touches disk
+    monkeypatch.setattr(win, "save_json", _raise_oserror)
+    errors = []
+    monkeypatch.setattr(win, "_report_save_error",
+                        lambda path, err: errors.append((path, err)))
+    assert win.dirty is True
+    assert win.save() is False
+    assert win.dirty is True  # NOT silently marked clean on a failed write
+    assert len(errors) == 1 and isinstance(errors[0][1], OSError)
+
+
+def test_save_as_write_failure_returns_false_leaves_current_path_unset(qtbot, monkeypatch):
+    win, _ = _win(qtbot)
+    win.current_path = None
+    monkeypatch.setattr(win, "_ask_save_path", lambda: "/nonexistent/dir/f.json")
+    monkeypatch.setattr(win, "save_json", _raise_oserror)
+    monkeypatch.setattr(win, "_report_save_error", lambda path, err: None)
+    assert win.save_as() is False
+    assert win.current_path is None
+    assert win.dirty is True
+
+
+def test_save_failure_cancels_close_via_confirm_discard(qtbot, monkeypatch):
+    # Repro: dirty window -> close -> dialog -> user clicks Save -> the
+    # destination is unwritable -> the OSError must not escape closeEvent
+    # and accept the close with unsaved work still dirty.
+    win, _ = _win(qtbot)
+    win.current_path = "/nonexistent/dir/f.json"
+    monkeypatch.setattr(win, "save_json", _raise_oserror)
+    monkeypatch.setattr(win, "_report_save_error", lambda path, err: None)
+    monkeypatch.setattr(win, "confirm_discard",
+                        types.MethodType(_REAL_CONFIRM_DISCARD, win))
+    monkeypatch.setattr(QMessageBox, "exec", lambda self: QMessageBox.Save)
+    assert win.confirm_discard() is False  # Save chosen but write failed -> close cancelled
+    assert win.dirty is True
+
+    event = _FakeCloseEvent()
+    win.closeEvent(event)
+    assert event.accepted is False  # window must stay open, work not discarded
+
+
+# ---- Task 4: split-n / equalize / swap / nudge -----------------------------
+
+def test_split_n_via_action(qtbot, monkeypatch):
+    win, first = _win(qtbot)
+    monkeypatch.setattr(win, "_ask_n", lambda: 3)
+    win.do_action("split_right_n", first)
+    assert len(list(iter_panels(win.doc.tree))) == 4  # 2 before + 2 added
+
+
+def test_equalize_via_action(qtbot, monkeypatch):
+    win, first = _win(qtbot)
+    monkeypatch.setattr(win, "_ask_n", lambda: 3)
+    win.do_action("split_right_n", first)
+    win.do_action("equalize", first)
+    rects = {r.panel_id: r for r in win.doc.panel_rects()}
+    widths = sorted(round(r.w_mm, 1) for r in rects.values())
+    assert len(set(widths[:3])) == 1  # the three split siblings equal
+
+
+def test_swap_flow(qtbot):
+    win, first = _win(qtbot)
+    other = [p.id for p in iter_panels(win.doc.tree) if p.id != first][0]
+    win.do_action("swap", first)
+    win.do_action("select", other)
+    rects = {r.panel_id: r for r in win.doc.panel_rects()}
+    assert rects[first].x_mm > rects[other].x_mm  # positions exchanged
+
+
+def test_swap_armed_visual_cue(qtbot):
+    win, first = _win(qtbot)
+    win.do_action("swap", first)
+    widget = win.canvas.panel_widgets()[first]
+    assert widget.property("swapArmed") is True
+    win.do_action("select", first)  # same id -- cancels, doesn't swap
+    assert widget.property("swapArmed") is False
+
+
+def test_unrelated_action_disarms_swap_pending(qtbot):
+    win, first = _win(qtbot)
+    other = [p.id for p in iter_panels(win.doc.tree) if p.id != first][0]
+    before = {r.panel_id: r for r in win.doc.panel_rects()}
+    win.do_action("swap", first)
+    win.do_action("split_right", other)  # unrelated action -- must disarm swap
+    assert win._swap_pending is None
+    win.do_action("select", other)  # would have completed the swap if still armed
+    rects = {r.panel_id: r for r in win.doc.panel_rects()}
+    assert rects[first].x_mm == pytest.approx(before[first].x_mm)  # untouched -- no swap fired
+
+
+def test_blank_canvas_click_cancels_swap(qtbot):
+    win, first = _win(qtbot)
+    win.do_action("swap", first)
+    assert win._swap_pending == first
+    win.canvas.panel_action.emit("select", None)  # what a blank-canvas click sends
+    assert win._swap_pending is None
+    assert win.canvas.panel_widgets()[first].property("swapArmed") is False
+
+
+def test_undo_disarms_swap_pending(qtbot):
+    win, first = _win(qtbot)
+    win.do_action("swap", first)
+    assert win._swap_pending == first
+    win.undo()
+    assert win._swap_pending is None
+
+
+def test_nudge_shortcut(qtbot):
+    from PySide6.QtCore import Qt
+    win, first = _win(qtbot)
+    win.do_action("select", first)
+    before = {r.panel_id: r for r in win.doc.panel_rects()}[first].w_mm
+    qtbot.keyClick(win, Qt.Key_Right, Qt.ControlModifier)
+    after = {r.panel_id: r for r in win.doc.panel_rects()}[first].w_mm
+    assert after == pytest.approx(before + 0.5)

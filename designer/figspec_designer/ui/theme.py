@@ -13,6 +13,8 @@ INK_MUTED = "#A09D96"
 INK_HOVER = "#33332F"
 PANEL_BG = "#FFFFFF"
 LETTER = "#C6C3BC"
+AMBER_BG = "#F5A623"
+AMBER_INK = "#3D2B00"
 
 QSS = f"""
 QMainWindow, QWidget#chrome {{ background: {CHROME}; }}
@@ -24,12 +26,16 @@ QWidget#page {{ background: transparent; border: none; }}
 
 PanelWidget {{ background: {PANEL_BG}; border: 1px solid {HAIRLINE}; border-radius: 4px; }}
 PanelWidget[selected="true"] {{ border: 2px solid {INK}; }}
+PanelWidget[swapArmed="true"] {{ border: 2px dashed {AMBER_BG}; }}
 QLabel#panelLetter {{ color: {LETTER}; font-size: 20px; font-weight: 600; background: transparent; border: none; }}
 
 QWidget#panelActions {{ background: {PANEL_BG}; border: 1px solid {HAIRLINE}; border-radius: 6px; }}
 QWidget#panelActions QToolButton {{ border: none; border-radius: 4px; padding: 2px 6px;
     color: {INK_SECONDARY}; background: transparent; font-size: 12px; }}
 QWidget#panelActions QToolButton:hover {{ background: {CANVAS}; color: {INK}; }}
+
+QLabel#aspectBadge {{ background: {AMBER_BG}; color: {AMBER_INK}; font-size: 10px;
+    font-weight: 700; padding: 1px 6px; border-radius: 8px; }}
 
 QSplitter::handle {{ background: transparent; }}
 QSplitter::handle:hover, QSplitter::handle:pressed {{ background: {DIVIDER}; }}
@@ -52,7 +58,7 @@ QPushButton#primary:hover {{ background: {INK_HOVER}; }}
 QWidget#sidebar {{ background: {CHROME}; border-left: 1px solid {HAIRLINE}; }}
 QLabel#sectionHeader {{ color: {INK_MUTED}; font-size: 10px; font-weight: 600; }}
 QLabel#fieldLabel {{ color: {INK_MUTED}; font-size: 12px; }}
-QLabel#fieldValue {{ color: {INK}; font-size: 12px; font-weight: 600; }}
+#fieldValue {{ color: {INK}; font-size: 12px; font-weight: 600; }}
 QLineEdit#hintEdit {{ background: transparent; border: none; border-bottom: 1px solid {DIVIDER};
     border-radius: 0; padding: 3px 0; color: {INK}; }}
 QLineEdit#hintEdit:focus {{ border-bottom: 2px solid {INK}; }}

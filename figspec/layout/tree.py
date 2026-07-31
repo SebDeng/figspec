@@ -9,6 +9,7 @@ from typing import Iterator, Union
 class PanelNode:
     id: str
     content_hint: str = ""
+    aspect_lock: float | None = None
 
 
 @dataclass(frozen=True)
@@ -41,7 +42,10 @@ def iter_panels(node: Node) -> Iterator[PanelNode]:
 
 def to_dict(node: Node) -> dict:
     if isinstance(node, PanelNode):
-        return {"type": "panel", "id": node.id, "content_hint": node.content_hint}
+        d = {"type": "panel", "id": node.id, "content_hint": node.content_hint}
+        if node.aspect_lock is not None:
+            d["aspect_lock"] = node.aspect_lock
+        return d
     return {
         "type": "split",
         "orientation": node.orientation,
@@ -53,7 +57,8 @@ def to_dict(node: Node) -> dict:
 def from_dict(d: dict) -> Node:
     kind = d.get("type")
     if kind == "panel":
-        return PanelNode(id=d["id"], content_hint=d.get("content_hint", ""))
+        return PanelNode(id=d["id"], content_hint=d.get("content_hint", ""),
+                         aspect_lock=d.get("aspect_lock"))
     if kind == "split":
         return SplitNode(
             d["orientation"],
