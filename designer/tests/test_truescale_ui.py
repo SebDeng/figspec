@@ -93,3 +93,78 @@ def test_correction_roundtrip(tmp_path):
     s1.sync()
     s2 = QSettings(ini, QSettings.IniFormat)
     assert truescale.load_correction(screen, s2) == pytest.approx(1.07)
+
+
+# ---- zoom model (task E2) -----------------------------------------------
+
+def test_default_zoom_is_fit(qtbot):
+    from figspec_designer.ui.main_window import MainWindow
+    win = MainWindow()
+    qtbot.addWidget(win)
+    assert win.canvas.zoom_mode == "fit"
+
+
+def test_actual_size_uses_screen_derivation(qtbot, monkeypatch):
+    from figspec_designer.ui.main_window import MainWindow
+    win = MainWindow()
+    qtbot.addWidget(win)
+    monkeypatch.setattr(win, "_actual_ppm", lambda: 4.862)
+    win.zoom_actual()
+    assert win.canvas.zoom_mode == "actual"
+    assert win.canvas.px_per_mm == pytest.approx(4.862)
+
+
+def test_manual_zoom_pins_scale_and_emits(qtbot):
+    from figspec_designer.ui.main_window import MainWindow
+    win = MainWindow()
+    qtbot.addWidget(win)
+    with qtbot.waitSignal(win.canvas.scale_changed, timeout=2000) as blocker:
+        win.canvas.set_zoom("manual", 12.0)
+    assert blocker.args[0] == pytest.approx(12.0)
+    assert win.canvas.px_per_mm == pytest.approx(12.0)
+    # canvas advertises the page extent so the scroll area can scroll
+    assert win.canvas.minimumWidth() > 12 * 183 * 0.9
+
+
+def test_zoom_step_clamps_to_actual_band(qtbot, monkeypatch):
+    from figspec_designer.ui.main_window import MainWindow
+    win = MainWindow()
+    qtbot.addWidget(win)
+    monkeypatch.setattr(win, "_actual_ppm", lambda: 4.0)
+    win.canvas.set_zoom("manual", 15.5)
+    win.zoom_step(1.25)  # would be 19.4 — clamps to 4×actual = 16
+    assert win.canvas.px_per_mm == pytest.approx(16.0)
+
+
+def test_zoom_fit_restores_window_tracking(qtbot):
+    from figspec_designer.ui.main_window import MainWindow
+    win = MainWindow()
+    qtbot.addWidget(win)
+    win.canvas.set_zoom("manual", 12.0)
+    win.zoom_fit()
+    assert win.canvas.zoom_mode == "fit"
+    assert win.canvas.minimumWidth() == 0  # no stale floor
+
+
+def test_layout_edits_survive_pinned_zoom(qtbot):
+    from figspec.layout.tree import iter_panels
+    from figspec_designer.ui.main_window import MainWindow
+    win = MainWindow()
+    qtbot.addWidget(win)
+    win.canvas.set_zoom("manual", 10.0)
+    pid = next(iter_panels(win.doc.tree)).id
+    win.do_action("split_right", pid)
+    assert len(list(iter_panels(win.doc.tree))) == 2
+    assert win.canvas.px_per_mm == pytest.approx(10.0)  # zoom survives rebuild
+
+
+# ---- calibration dialog (task E3) ---------------------------------------
+
+def test_calibrate_dialog_slider_drives_ruler(qtbot):
+    from figspec_designer.ui.calibrate_dialog import CalibrateDialog
+    dlg = CalibrateDialog(base_ppm=4.0, correction=1.0)
+    qtbot.addWidget(dlg)
+    before = dlg.ruler.bar_px()
+    dlg.slider.setValue(1100)
+    assert dlg.ruler.bar_px() == pytest.approx(before * 1.10, rel=1e-6)
+    assert dlg.correction() == pytest.approx(1.10)

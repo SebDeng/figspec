@@ -5,9 +5,9 @@ import json
 from pathlib import Path
 from PySide6.QtCore import Qt, QSettings
 from PySide6.QtGui import QAction, QKeySequence
-from PySide6.QtWidgets import (QDialog, QFileDialog, QHBoxLayout, QInputDialog,
-                               QMainWindow, QMessageBox, QApplication,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QDialog, QFileDialog, QFrame, QHBoxLayout,
+                               QInputDialog, QMainWindow, QMessageBox,
+                               QApplication, QScrollArea, QVBoxLayout, QWidget)
 from figspec.document import absolutize_assets
 from figspec.snippet import generate_snippet
 from figspec.spec import Target
@@ -46,6 +46,15 @@ class MainWindow(QMainWindow):
         self.sidebar = Sidebar()
         self.sidebar.setFixedWidth(260)
 
+        # Scroll container: inert at fit zoom (canvas min size 0), grows
+        # scrollbars when actual/manual zoom pins the page larger than the
+        # viewport (canvas publishes its extent via setMinimumSize).
+        self.canvas_scroll = QScrollArea()
+        self.canvas_scroll.setObjectName("canvasScroll")
+        self.canvas_scroll.setWidgetResizable(True)
+        self.canvas_scroll.setFrameShape(QFrame.NoFrame)
+        self.canvas_scroll.setWidget(self.canvas)
+
         central = QWidget()
         central.setObjectName("chrome")
         central.setAttribute(Qt.WA_StyledBackground, True)
@@ -53,7 +62,7 @@ class MainWindow(QMainWindow):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(self.topbar)
         row = QHBoxLayout()
-        row.addWidget(self.canvas, stretch=1)
+        row.addWidget(self.canvas_scroll, stretch=1)
         row.addWidget(self.sidebar)
         outer.addLayout(row, stretch=1)
         self.setCentralWidget(central)
@@ -116,6 +125,13 @@ class MainWindow(QMainWindow):
         edit_menu = self.menuBar().addMenu("Edit")
         act(edit_menu, "Undo", "Ctrl+Z", self.undo)
         act(edit_menu, "Redo", "Ctrl+Shift+Z", self.redo)
+        view_menu = self.menuBar().addMenu("View")
+        act(view_menu, "Zoom to Fit", "Ctrl+0", self.zoom_fit)
+        act(view_menu, "Actual Size", "Ctrl+1", self.zoom_actual)
+        act(view_menu, "Zoom In", "Ctrl+=", lambda: self.zoom_step(1.25))
+        act(view_menu, "Zoom Out", "Ctrl+-", lambda: self.zoom_step(0.8))
+        view_menu.addSeparator()
+        act(view_menu, "Calibrate Display…", None, self.calibrate_display)
         panel_menu = self.menuBar().addMenu("Panel")
         act(panel_menu, "Split Right", "Ctrl+D",
             lambda: self.do_action("split_right", self.selected_panel_id))
@@ -175,6 +191,41 @@ class MainWindow(QMainWindow):
 
     def _asset_base_dir(self) -> Path | None:
         return self.current_path.parent if self.current_path else None
+
+    # ---- zoom -------------------------------------------------------
+    def _actual_ppm(self) -> float:
+        """Logical px per mm for TRUE physical size on the current screen,
+        including any stored calibration correction."""
+        from figspec_designer.ui import truescale
+        screen = self.screen() or QApplication.primaryScreen()
+        return truescale.screen_px_per_mm(
+            screen, truescale.load_correction(screen, self._settings()))
+
+    def zoom_fit(self) -> None:
+        self.canvas.set_zoom("fit")
+
+    def zoom_actual(self) -> None:
+        self.canvas.set_zoom("actual", self._actual_ppm())
+
+    def zoom_step(self, factor: float) -> None:
+        actual = self._actual_ppm()
+        ppm = min(max(self.canvas.px_per_mm * factor, 0.25 * actual),
+                  4.0 * actual)
+        self.canvas.set_zoom("manual", ppm)
+
+    def calibrate_display(self) -> None:
+        from figspec_designer.ui import truescale
+        from figspec_designer.ui.calibrate_dialog import CalibrateDialog
+        screen = self.screen() or QApplication.primaryScreen()
+        dlg = CalibrateDialog(truescale.screen_px_per_mm(screen),
+                              truescale.load_correction(screen,
+                                                        self._settings()),
+                              self)
+        if dlg.exec() == QDialog.Accepted:
+            truescale.save_correction(screen, dlg.correction(),
+                                      self._settings())
+            if self.canvas.zoom_mode == "actual":
+                self.zoom_actual()  # re-derive with the new correction
 
     # Qt substitutes ~3780 dots/meter (96.01 dpi) when a file carries no
     # resolution metadata -- a real 96 dpi pHYs is indistinguishable from
