@@ -212,19 +212,29 @@ class Sidebar(QWidget):
         calc_layout.addWidget(arrow_lbl)
         calc_layout.addWidget(self.calc_effective)
 
-        for row, (text, widget) in enumerate([("File", self.lbl_asset_name),
-                                              ("Pixels", self.lbl_asset_px),
-                                              ("Effective", self.lbl_asset_dpi),
-                                              ("Source DPI", dpi_row),
-                                              ("Scale", self.lbl_scale),
-                                              ("Font calc", calc_row)]):
+        self._asset_rows: dict[str, tuple[QWidget, QWidget]] = {}
+        for row, (text, widget, key) in enumerate([
+                ("File", self.lbl_asset_name, "file"),
+                ("Pixels", self.lbl_asset_px, "px"),
+                ("Effective", self.lbl_asset_dpi, "eff"),
+                ("Source DPI", dpi_row, "dpi"),
+                ("Scale", self.lbl_scale, "scale"),
+                ("Font calc", calc_row, "calc")]):
             left = QLabel(text)
             left.setObjectName("fieldLabel")
             if isinstance(widget, QLabel):
                 widget.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             asset_grid.addWidget(left, row, 0)
             asset_grid.addWidget(widget, row, 1)
+            self._asset_rows[key] = (left, widget)
         asset_layout.addLayout(asset_grid)
+
+        # Pre-assembly prediction rows (vector assets only)
+        self.lbl_prediction = QLabel("")
+        self.lbl_prediction.setObjectName("predictionList")
+        self.lbl_prediction.setWordWrap(True)
+        self.lbl_prediction.setVisible(False)
+        asset_layout.addWidget(self.lbl_prediction)
         self.btn_remove_asset = QPushButton("Remove Asset")
         self.btn_remove_asset.setObjectName("removeAssetButton")
         asset_layout.addWidget(self.btn_remove_asset)
@@ -357,7 +367,9 @@ class Sidebar(QWidget):
                    asset_missing: bool = False,
                    asset_dpi: float | None = None,
                    scale_k: float | None = None,
-                   stand_in: str | None = None) -> None:
+                   stand_in: str | None = None,
+                   asset_vector: bool = False,
+                   prediction: list[str] | None = None) -> None:
         self._panel_id = panel_id
         w_px, h_px, figsize = derive(rect, dpi)
         self.lbl_label.setText(label)
@@ -403,13 +415,27 @@ class Sidebar(QWidget):
             self.asset_box.setVisible(True)
             self.lbl_asset_name.setText(
                 asset_name + (" (missing)" if asset_missing else ""))
-            self.lbl_asset_px.setText(
-                f"{asset_px[0]} × {asset_px[1]} px" if asset_px else "—")
+            if asset_vector and asset_px:
+                # intrinsic pt, not pixels -- effective-DPI/source-DPI rows
+                # are meaningless for vectors and get hidden below
+                self.lbl_asset_px.setText(
+                    f"{asset_px[0]} × {asset_px[1]} pt · vector")
+            else:
+                self.lbl_asset_px.setText(
+                    f"{asset_px[0]} × {asset_px[1]} px" if asset_px else "—")
+            for key in ("eff", "dpi"):
+                for w in self._asset_rows[key]:
+                    w.setVisible(not asset_vector)
             self.lbl_asset_dpi.setText(
                 f"{eff_dpi:.0f} dpi" if eff_dpi is not None else "—")
             self.lbl_asset_dpi.setProperty(
                 "level", "bad" if asset_missing else dpi_level)
             repolish(self.lbl_asset_dpi)
+            if prediction:
+                self.lbl_prediction.setText("\n".join(prediction))
+                self.lbl_prediction.setVisible(True)
+            else:
+                self.lbl_prediction.setVisible(False)
 
             self._k = scale_k
             self.dpi_edit.blockSignals(True)
@@ -458,3 +484,4 @@ class Sidebar(QWidget):
         self.standin_combo.blockSignals(False)
         self.standin_combo.setEnabled(False)
         self.asset_box.setVisible(False)
+        self.lbl_prediction.setVisible(False)

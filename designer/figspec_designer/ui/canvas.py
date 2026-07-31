@@ -208,6 +208,9 @@ class Canvas(QWidget):
         path = resolve_asset(node.asset, self._asset_base)
         if path is None:
             return None, True
+        if str(path).lower().endswith(".pdf"):
+            pix = self._render_pdf_thumb(path)
+            return (pix, False) if pix is not None else (None, True)
         pix = QPixmap(str(path))
         if pix.isNull():
             return None, True
@@ -215,6 +218,29 @@ class Canvas(QWidget):
             pix = pix.scaled(self._THUMB_MAX, self._THUMB_MAX,
                              Qt.KeepAspectRatio, Qt.SmoothTransformation)
         return pix, False
+
+    @classmethod
+    def _render_pdf_thumb(cls, path) -> "QPixmap | None":
+        """First page via pdfium (already in the dependency tree for lint)."""
+        try:
+            import io
+            import pypdfium2 as pdfium
+            doc = pdfium.PdfDocument(str(path))
+            try:
+                page = doc[0]
+                w_pt, h_pt = page.get_size()
+                if max(w_pt, h_pt) <= 0:
+                    return None
+                scale = min(cls._THUMB_MAX / max(w_pt, h_pt), 4.0)
+                pil = page.render(scale=scale).to_pil().convert("RGB")
+            finally:
+                doc.close()
+            buf = io.BytesIO()
+            pil.save(buf, "PNG")
+            pix = QPixmap()
+            return pix if pix.loadFromData(buf.getvalue()) else None
+        except Exception:
+            return None  # unreadable PDF -> "missing asset" treatment
 
     def _axis_mm(self, node: Node, path: tuple[int, ...]) -> float:
         """Length in mm of this splitter's axis, derived from the flattened rects."""

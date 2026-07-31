@@ -96,6 +96,8 @@ class MainWindow(QMainWindow):
         self.lint_dock.relint_requested.connect(self._relint)
         self._lint_worker = None
         self._last_lint_path: str | None = None
+        # predict_pdf results keyed on (path, mtime, panel size, thresholds)
+        self._predict_cache: dict[tuple, list[str]] = {}
 
         self._make_menus()
         # Init-time doc/topbar sync only -- NOT _on_settings_changed(),
@@ -250,6 +252,22 @@ class MainWindow(QMainWindow):
         return dpm * 0.0254
 
     def _on_asset_dropped(self, panel_id: str, file_path: str) -> None:
+        if file_path.lower().endswith(".pdf"):
+            # Vector asset: store the page size in pt as "pixels" with a
+            # declared 72 dpi -- 1 pt = 1/72 in, so the ordinary raster
+            # math yields the exact intrinsic physical size and scale.
+            try:
+                w_pt, h_pt = self._pdf_page_size(file_path)
+            except Exception:
+                self.statusBar().showMessage("Cannot read PDF file", 3000)
+                return
+            try:
+                self._push_tree(ops.set_asset(
+                    self.doc.tree, panel_id, file_path,
+                    (round(w_pt), round(h_pt)), asset_dpi=72.0))
+            except KeyError:
+                self.statusBar().showMessage("Panel no longer exists", 3000)
+            return
         from PySide6.QtGui import QImageReader
         size = QImageReader(file_path).size()
         if not size.isValid():
@@ -261,6 +279,15 @@ class MainWindow(QMainWindow):
                                           asset_dpi=self._read_asset_dpi(file_path)))
         except KeyError:
             self.statusBar().showMessage("Panel no longer exists", 3000)
+
+    @staticmethod
+    def _pdf_page_size(file_path: str) -> tuple[float, float]:
+        import pypdfium2 as pdfium
+        doc = pdfium.PdfDocument(file_path)
+        try:
+            return doc[0].get_size()
+        finally:
+            doc.close()
 
     def _on_asset_removed(self, panel_id: str) -> None:
         try:
@@ -293,17 +320,22 @@ class MainWindow(QMainWindow):
         from pathlib import Path as _P
         from figspec_designer.model.flatten import effective_dpi, format_label
         from figspec.document import resolve_asset
-        asset_name = asset_px = eff = scale_k = None
-        dpi_level, missing = "ok", False
+        asset_name = asset_px = eff = scale_k = prediction = None
+        dpi_level, missing, is_vector = "ok", False, False
         if panel.asset is not None:
             from figspec import scaling
             asset_name = _P(panel.asset).name
             asset_px = panel.asset_px
-            eff = effective_dpi(panel.asset_px, rect.w_mm, rect.h_mm)
-            floor = self.doc.constraints.min_effective_dpi
-            dpi_level = ("ok" if eff >= floor
-                         else "warn" if eff >= 0.67 * floor else "bad")
             missing = resolve_asset(panel.asset, self._asset_base_dir()) is None
+            is_vector = panel.asset.lower().endswith(".pdf")
+            if is_vector:
+                if not missing:
+                    prediction = self._pdf_prediction_rows(panel, rect)
+            else:
+                eff = effective_dpi(panel.asset_px, rect.w_mm, rect.h_mm)
+                floor = self.doc.constraints.min_effective_dpi
+                dpi_level = ("ok" if eff >= floor
+                             else "warn" if eff >= 0.67 * floor else "bad")
             src_mm = scaling.asset_size_mm(panel.asset_px,
                                            panel.asset_dpi or 96.0)
             scale_k = scaling.placement_scale((rect.w_mm, rect.h_mm), src_mm)
@@ -318,8 +350,48 @@ class MainWindow(QMainWindow):
                                 eff_dpi=eff, dpi_level=dpi_level,
                                 asset_missing=missing,
                                 asset_dpi=panel.asset_dpi, scale_k=scale_k,
-                                stand_in=panel.stand_in)
+                                stand_in=panel.stand_in,
+                                asset_vector=is_vector, prediction=prediction)
         self.specimen_strip.set_panel_scale(scale_k)
+
+    def _pdf_prediction_rows(self, panel, rect) -> list[str]:
+        """predict_pdf → display rows, cached on (file, mtime, panel size,
+        thresholds) so tree refreshes don't re-parse the PDF."""
+        from figspec import scaling
+        from figspec.document import resolve_asset
+        path = resolve_asset(panel.asset, self._asset_base_dir())
+        if path is None:
+            return []
+        try:
+            mtime = Path(path).stat().st_mtime_ns
+        except OSError:
+            return []
+        c = self.doc.constraints
+        key = (str(path), mtime, round(rect.w_mm, 1), round(rect.h_mm, 1),
+               c.min_font_pt, c.max_font_pt, c.min_linewidth_pt)
+        cached = self._predict_cache.get(key)
+        if cached is not None:
+            return cached
+        try:
+            pred = scaling.predict_pdf(str(path), (rect.w_mm, rect.h_mm), c)
+        except Exception as e:
+            rows = [f"prediction failed: {e}"]
+        else:
+            glyph = {"ok": "✓", "warn": "△", "fail": "✗"}
+            rows = []
+            if pred["text_absent"]:
+                rows.append("text outlined — cannot predict font sizes")
+            entries = ([("", e) for e in pred["text"]]
+                       + [("line ", e) for e in pred["strokes"]])
+            for prefix, e in entries[:8]:
+                rows.append(f"{prefix}{e['source_pt']:g} pt → "
+                            f"{e['placed_pt']:.2f} pt {glyph[e['verdict']]}")
+            if len(entries) > 8:
+                rows.append(f"+{len(entries) - 8} more")
+        if len(self._predict_cache) > 64:
+            self._predict_cache.clear()
+        self._predict_cache[key] = rows
+        return rows
 
     def _axis_adjustable(self, panel_id: str, axis: str) -> bool:
         """Probe whether axis can be resized on the CURRENT tree, without

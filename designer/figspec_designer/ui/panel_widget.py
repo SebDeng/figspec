@@ -9,7 +9,7 @@ _BTN_SPECS = [("btn_split_right", "▸", "split_right", "Split right (Cmd+D)"),
               ("btn_split_down", "▾", "split_down", "Split down (Shift+Cmd+D)"),
               ("btn_close", "✕", "close", "Delete panel (Cmd+Backspace)")]
 
-ASSET_EXTS = {".png", ".jpg", ".jpeg", ".tif", ".tiff"}
+ASSET_EXTS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".pdf"}
 
 
 class PanelWidget(QFrame):
