@@ -131,11 +131,16 @@ class Sidebar(QWidget):
         value = spin.value()
         if shown is not None and abs(value - shown) < 1e-9:
             return  # unchanged vs what was shown -- no spurious emit/history push
-        self.size_edited.emit(self._panel_id, axis, value)
+        # Record the shown value BEFORE emitting: size_edited is handled
+        # synchronously, and on rejection MainWindow's error path calls back
+        # into show_panel() (the authoritative writer of _shown_w/_shown_h)
+        # before this method regains control. Writing here first means that
+        # authoritative reset -- not this optimistic guess -- wins.
         if axis == "w":
             self._shown_w = value
         else:
             self._shown_h = value
+        self.size_edited.emit(self._panel_id, axis, value)
 
     def _emit_square(self) -> None:
         if self._panel_id is not None:

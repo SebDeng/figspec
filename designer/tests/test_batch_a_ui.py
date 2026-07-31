@@ -48,6 +48,31 @@ def test_placement_table(qtbot):
     assert lines[1].startswith("a\t0.00\t0.00\t")
 
 
+def test_rejected_size_edit_does_not_cause_spurious_reemit(qtbot):
+    # Regression: Sidebar._emit_size used to write self._shown_w/_shown_h
+    # AFTER emitting size_edited. When the edit is rejected, the synchronous
+    # emit -> MainWindow._on_size_edited -> _refresh_sidebar -> show_panel
+    # chain correctly resets _shown_w back to the real value, but control
+    # then returns to _emit_size and clobbers that reset with the rejected
+    # (stale) value. The next editingFinished -- even with no user change --
+    # then spuriously re-emits size_edited and pushes a redundant undo entry.
+    win, first = _win(qtbot)
+    win.do_action("select", first)
+    depth_before = len(win.history._undo)
+    got = []
+    win.sidebar.size_edited.connect(lambda pid, axis, v: got.append((pid, axis, v)))
+
+    win.sidebar.spin_w.setValue(500.0)  # out of range for this layout -> rejected
+    win.sidebar.spin_w.editingFinished.emit()
+    assert len(got) == 1  # the rejected attempt itself still emits once
+    assert win.sidebar.spin_w.value() == pytest.approx(89.5)  # snapped back
+    assert len(win.history._undo) == depth_before  # rejected -> no tree push
+
+    win.sidebar.spin_w.editingFinished.emit()  # no further user change
+    assert len(got) == 1  # must NOT spuriously re-emit
+    assert len(win.history._undo) == depth_before  # must NOT push a redundant entry
+
+
 def test_aspect_lock_roundtrips_via_export(qtbot):
     win, first = _win(qtbot)
     win.do_action("select", first)
