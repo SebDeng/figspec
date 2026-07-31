@@ -1,3 +1,8 @@
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent / "designer"))
+
 import pytest
 from tests.fixtures import (compose_scaled, make_panel, make_raster_panel,
                             make_textpath_panel)
