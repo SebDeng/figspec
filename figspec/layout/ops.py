@@ -166,6 +166,29 @@ def set_content_hint(root: Node, panel_id: str, text: str) -> Node:
     return out
 
 
+def set_asset(root: Node, panel_id: str, asset: str | None,
+              asset_px: tuple[int, int] | None) -> Node:
+    """Attach (or, with None/None, detach) an external image asset."""
+    if (asset is None) != (asset_px is None):
+        raise ValueError("asset and asset_px must be set or cleared together")
+    found = False
+
+    def rec(node: Node) -> Node:
+        nonlocal found
+        if isinstance(node, PanelNode):
+            if node.id == panel_id:
+                found = True
+                px = tuple(int(v) for v in asset_px) if asset_px is not None else None
+                return replace(node, asset=asset, asset_px=px)
+            return node
+        return replace(node, children=tuple(rec(c) for c in node.children))
+
+    out = rec(root)
+    if not found:
+        raise KeyError(panel_id)
+    return out
+
+
 def set_aspect_lock(root: Node, panel_id: str, value: float | None) -> Node:
     def rec(node: Node) -> Node:
         if isinstance(node, PanelNode):
