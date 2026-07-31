@@ -45,6 +45,52 @@ def required_px(panel_mm: tuple[float, float],
             math.ceil(panel_mm[1] / MM_PER_IN * min_effective_dpi))
 
 
+def predict_pdf(asset_path, panel_mm: tuple[float, float],
+                constraints) -> dict:
+    """Pre-assembly lint prediction for a vector (PDF) asset: run the
+    shipped content-stream interpreter, apply the virtual placement scale
+    k, verdict every distinct text size / stroke width against the
+    constraints — the lint conclusion, before assembly ever happens.
+
+    Sizes are grouped on the asset's own EFFECTIVE values (nominal × the
+    asset's internal CTM), so a figure that already scales itself
+    internally is judged on what its author actually sees."""
+    from figspec.pdf.interpreter import extract
+    from figspec.units import pt_to_mm
+    doc = extract(asset_path)
+    if not doc.pages or doc.pages[0].width_pt <= 0:
+        raise ValueError("PDF has no measurable page")
+    page = doc.pages[0]
+    src_mm = (pt_to_mm(page.width_pt), pt_to_mm(page.height_pt))
+    k = placement_scale(panel_mm, src_mm)
+    text_runs = [r for r in doc.text_runs if r.page_index == 0]
+    strokes = [s for s in doc.strokes if s.page_index == 0]
+    out = {"k": k, "src_mm": src_mm, "text_absent": not text_runs,
+           "text": [], "strokes": []}
+
+    def grouped(values, digits):
+        counts: dict[float, int] = {}
+        for v in values:
+            key = round(v, digits)
+            counts[key] = counts.get(key, 0) + 1
+        return sorted(counts.items())
+
+    for src_pt, count in grouped((r.effective_pt for r in text_runs), 1):
+        placed = effective_pt(src_pt, k)
+        verdict = ("fail" if placed < constraints.min_font_pt - 1e-6
+                   else "warn" if placed > constraints.max_font_pt + 1e-6
+                   else "ok")
+        out["text"].append({"source_pt": src_pt, "placed_pt": placed,
+                            "count": count, "verdict": verdict})
+    for src_w, count in grouped((s.effective_w_pt for s in strokes), 2):
+        placed = effective_pt(src_w, k)
+        out["strokes"].append({
+            "source_pt": src_w, "placed_pt": placed, "count": count,
+            "verdict": ("fail" if placed < constraints.min_linewidth_pt - 1e-6
+                        else "ok")})
+    return out
+
+
 def authoring_card(panel_mm: tuple[float, float], constraints,
                    asset_px: tuple[int, int] | None = None,
                    asset_dpi: float | None = None) -> str:

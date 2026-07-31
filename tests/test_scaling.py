@@ -109,3 +109,46 @@ def test_old_sidecar_without_dpi_parses():
     d = {"type": "panel", "id": "p1", "content_hint": "",
          "asset": "a.png", "asset_px": [400, 300]}
     assert from_dict(d).asset_dpi is None
+
+
+# ---- pre-assembly prediction for vector assets (batch G) -----------------
+
+def test_predict_pdf_golden(tmp_path):
+    pytest.importorskip("matplotlib")
+    from tests.fixtures import make_panel
+    pdf = tmp_path / "panel.pdf"
+    make_panel(pdf, fontsize=8.0, linewidth=0.5)  # 3.5 × 2.5 in intrinsic
+    pred = scaling.predict_pdf(str(pdf), (30.0, 30.0), NATURE)
+    assert pred["src_mm"][0] == pytest.approx(88.9, abs=0.5)
+    k = pred["k"]
+    assert k == pytest.approx(30.0 / 88.9, abs=0.005)  # width binds
+    assert pred["text_absent"] is False
+    eights = [e for e in pred["text"] if abs(e["source_pt"] - 8.0) < 0.15]
+    assert eights, pred["text"]
+    assert eights[0]["placed_pt"] == pytest.approx(8.0 * k, abs=0.05)
+    assert eights[0]["verdict"] == "fail"  # ~2.7 pt, far under the 5 pt floor
+    assert any(s["verdict"] == "fail" for s in pred["strokes"])  # 0.5 → ~0.17
+
+
+def test_predict_pdf_text_absent(tmp_path):
+    pytest.importorskip("matplotlib")
+    from tests.fixtures import make_textpath_panel
+    pdf = tmp_path / "outlined.pdf"
+    make_textpath_panel(pdf)
+    pred = scaling.predict_pdf(str(pdf), (60.0, 40.0), NATURE)
+    assert pred["text_absent"] is True
+    assert pred["text"] == []
+
+
+def test_predict_pdf_known_sample(tmp_path):
+    """The synthetic bad sample: 8 pt under a 0.4 content-stream scale is
+    3.2 pt effective in-asset; placed into a same-width panel (k = 1) it
+    stays 3.2 pt — red against the Nature floor."""
+    from figspec.selftest.samples import write_samples
+    paths = write_samples(tmp_path / "s")
+    pred = scaling.predict_pdf(str(paths["bad"]), (183.0, 100.0), NATURE)
+    assert pred["k"] == pytest.approx(1.0, abs=1e-6)
+    assert [e["source_pt"] for e in pred["text"]] == [3.2]
+    assert pred["text"][0]["verdict"] == "fail"
+    assert pred["strokes"][0]["source_pt"] == pytest.approx(0.2)
+    assert pred["strokes"][0]["verdict"] == "fail"
