@@ -167,8 +167,11 @@ def set_content_hint(root: Node, panel_id: str, text: str) -> Node:
 
 
 def set_asset(root: Node, panel_id: str, asset: str | None,
-              asset_px: tuple[int, int] | None) -> Node:
-    """Attach (or, with None/None, detach) an external image asset."""
+              asset_px: tuple[int, int] | None,
+              asset_dpi: float | None = None) -> Node:
+    """Attach (or, with None/None, detach) an external image asset. The
+    declared source resolution travels with the asset: replaced on attach,
+    cleared on detach."""
     if (asset is None) != (asset_px is None):
         raise ValueError("asset and asset_px must be set or cleared together")
     found = False
@@ -179,12 +182,33 @@ def set_asset(root: Node, panel_id: str, asset: str | None,
             if node.id == panel_id:
                 found = True
                 px = tuple(int(v) for v in asset_px) if asset_px is not None else None
-                return replace(node, asset=asset, asset_px=px)
+                return replace(node, asset=asset, asset_px=px,
+                               asset_dpi=asset_dpi if asset is not None else None)
             return node
         return replace(node, children=tuple(rec(c) for c in node.children))
 
     out = rec(root)
     if not found:
+        raise KeyError(panel_id)
+    return out
+
+
+def set_asset_dpi(root: Node, panel_id: str, dpi: float | None) -> Node:
+    """Edit the declared source resolution of an already-attached asset."""
+    def rec(node: Node) -> Node:
+        if isinstance(node, PanelNode):
+            if node.id == panel_id:
+                if node.asset is None:
+                    raise ValueError("panel has no asset")
+                return replace(node, asset_dpi=dpi)
+            return node
+        children = tuple(rec(c) for c in node.children)
+        if all(a is b for a, b in zip(children, node.children)):
+            return node
+        return SplitNode(node.orientation, node.ratios, children)
+
+    out = rec(root)
+    if out is root:
         raise KeyError(panel_id)
     return out
 
