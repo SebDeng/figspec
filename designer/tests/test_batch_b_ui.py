@@ -136,6 +136,14 @@ def test_lint_dock_error_path(qtbot, tmp_path):
     assert win.lint_dock.error_label.isVisibleTo(win.lint_dock)
 
 
+def test_lint_config_includes_min_raster_dpi(qtbot):
+    win = MainWindow()
+    qtbot.addWidget(win)
+    win.doc.constraints.min_effective_dpi = 450
+    cfg = win._lint_config()
+    assert cfg.min_raster_dpi == 450
+
+
 def test_close_during_running_lint_no_crash(qtbot, tmp_path):
     from figspec.selftest.samples import write_samples
     win = MainWindow()

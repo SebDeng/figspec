@@ -504,16 +504,25 @@ class MainWindow(QMainWindow):
         if self._last_lint_path:
             self._start_lint(self._last_lint_path)
 
-    def _start_lint(self, path: str) -> None:
+    def _lint_config(self):
+        """Factored out of _start_lint so tests can assert on the LintConfig
+        without spinning up a worker thread. min_raster_dpi comes from the
+        document's own asset-DPI floor (constraints.min_effective_dpi) --
+        otherwise the lint dock could verdict READY on a PDF whose rasters
+        the sidebar already flags "bad" for falling under that same floor."""
         from figspec.lint.checks import LintConfig
         from figspec.units import mm_to_pt
+        return LintConfig(
+            min_font_pt=self.doc.constraints.min_font_pt,
+            min_linewidth_pt=self.doc.constraints.min_linewidth_pt,
+            width_pt=mm_to_pt(self.doc.target.figure_width_mm),
+            min_raster_dpi=self.doc.constraints.min_effective_dpi)
+
+    def _start_lint(self, path: str) -> None:
         from figspec_designer.ui.lint_runner import LintWorker
         import tempfile
         self._last_lint_path = path
-        cfg = LintConfig(
-            min_font_pt=self.doc.constraints.min_font_pt,
-            min_linewidth_pt=self.doc.constraints.min_linewidth_pt,
-            width_pt=mm_to_pt(self.doc.target.figure_width_mm))
+        cfg = self._lint_config()
         out_dir = tempfile.mkdtemp(prefix="figspec-lint-")
         self.lint_action.setEnabled(False)
         self.statusBar().showMessage(f"Linting {path}…")
