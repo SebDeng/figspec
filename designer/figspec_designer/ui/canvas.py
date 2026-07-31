@@ -154,8 +154,9 @@ class Canvas(QWidget):
         pix = QPixmap(str(path))
         if pix.isNull():
             return None, True
-        if pix.width() > self._THUMB_MAX:
-            pix = pix.scaledToWidth(self._THUMB_MAX, Qt.SmoothTransformation)
+        if max(pix.width(), pix.height()) > self._THUMB_MAX:
+            pix = pix.scaled(self._THUMB_MAX, self._THUMB_MAX,
+                             Qt.KeepAspectRatio, Qt.SmoothTransformation)
         return pix, False
 
     def _axis_mm(self, node: Node, path: tuple[int, ...]) -> float:
