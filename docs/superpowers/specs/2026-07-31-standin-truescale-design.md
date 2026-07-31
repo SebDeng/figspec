@@ -1,7 +1,7 @@
 # Designer 内容替身与实寸排版真相（构思稿）
 
 **日期**：2026-07-31
-**状态**：Planned（开放问题已按建议定案，决策记录与批次拆分见 `docs/superpowers/plans/2026-07-31-standin-truescale-plan.md`）
+**状态**：Shipped 2026-07-31（批次 D–G 全部落地；决策记录与批次拆分见 `docs/superpowers/plans/2026-07-31-standin-truescale-plan.md`。计划范围内的偏差：SVG 资产与 MCP `authoring_card` 工具按决策记录留作 follow-up）
 **范围**：Designer 侧纯可视化，四件事——panel 内容替身（占位预演）、实寸模式（1:1 物理缩放）、磅尺样张条（任意缩放下的排版真相）、缩放真相（手作图的名义值 → 有效值前移）。明确不做、也不预设 M1 渲染引擎的任何设计。
 
 ## 0. 动机：占位灰框在"物理感"上说谎
