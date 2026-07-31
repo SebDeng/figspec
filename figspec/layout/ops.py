@@ -1,9 +1,29 @@
 """Pure tree operations. Every function returns a new tree."""
 from __future__ import annotations
 from dataclasses import replace
-from figspec.layout.tree import Node, PanelNode, SplitNode, new_panel
+from figspec.layout.tree import Node, PanelNode, SplitNode, iter_panels, new_panel
 
 _ORIENT = {"right": "row", "down": "column"}
+
+MIN_PANEL_MM = 5.0
+
+# split_panel_n has no page-geometry parameters (see its signature below), so its
+# MIN_PANEL_MM guard cannot know the real avail space at the target's depth. It
+# uses this reference page instead -- the same nature_double-preset geometry
+# (183 x 100 mm, 4 mm gutter) that DesignerDocument.default() and this test
+# suite's own defaults use -- as a conservative, consistent sizing check.
+_GUARD_PAGE_W_MM = 183.0
+_GUARD_PAGE_H_MM = 100.0
+_GUARD_GUTTER_MM = 4.0
+
+
+def _guard_split_ratios(orient: str, ratios: tuple[float, ...]) -> None:
+    n = len(ratios)
+    extent = _GUARD_PAGE_W_MM if orient == "row" else _GUARD_PAGE_H_MM
+    avail = extent - (n - 1) * _GUARD_GUTTER_MM
+    if any(r * avail < MIN_PANEL_MM - 1e-9 for r in ratios):
+        raise ValueError(
+            f"splitting into {n} would shrink a panel below {MIN_PANEL_MM:g} mm")
 
 
 def split_panel(root: Node, panel_id: str, direction: str) -> Node:
@@ -131,3 +151,158 @@ def snap_ratios(ratios, avail_mm: float, step: float = 0.5) -> tuple[float, ...]
         return ratios
     snapped.append(last)
     return tuple(s / avail_mm for s in snapped)
+
+
+def split_panel_n(root: Node, panel_id: str, direction: str, n: int) -> Node:
+    if not 2 <= n <= 8:
+        raise ValueError(f"n must be between 2 and 8, got {n}")
+    if direction not in _ORIENT:
+        raise ValueError(f"direction must be right|down, got {direction!r}")
+    orient = _ORIENT[direction]
+
+    def rec(node: Node) -> Node:
+        if isinstance(node, PanelNode):
+            if node.id != panel_id:
+                return node
+            ratios = tuple(1.0 / n for _ in range(n))
+            _guard_split_ratios(orient, ratios)
+            children = (node,) + tuple(new_panel() for _ in range(n - 1))
+            return SplitNode(orient, ratios, children)
+        children: list[Node] = []
+        ratios: list[float] = []
+        for child, ratio in zip(node.children, node.ratios):
+            if (isinstance(child, PanelNode) and child.id == panel_id
+                    and node.orientation == orient):
+                children.append(child)
+                children.extend(new_panel() for _ in range(n - 1))
+                ratios.extend([ratio / n] * n)
+            else:
+                children.append(rec(child))
+                ratios.append(ratio)
+        if len(children) == len(node.children) and \
+                all(a is b for a, b in zip(children, node.children)):
+            return node
+        if len(children) != len(node.children):
+            _guard_split_ratios(node.orientation, tuple(ratios))
+        return SplitNode(node.orientation, tuple(ratios), tuple(children))
+
+    out = rec(root)
+    if out is root:
+        raise KeyError(panel_id)
+    return out
+
+
+def equalize_siblings(root: Node, panel_id: str) -> Node:
+    if isinstance(root, PanelNode):
+        if root.id == panel_id:
+            raise ValueError("panel has no siblings")
+        raise KeyError(panel_id)
+
+    def rec(node: Node) -> Node:
+        if isinstance(node, PanelNode):
+            return node
+        if any(isinstance(c, PanelNode) and c.id == panel_id
+               for c in node.children):
+            n = len(node.children)
+            return SplitNode(node.orientation, tuple(1.0 / n for _ in range(n)),
+                             node.children)
+        children = tuple(rec(c) for c in node.children)
+        if all(a is b for a, b in zip(children, node.children)):
+            return node
+        return SplitNode(node.orientation, node.ratios, children)
+
+    out = rec(root)
+    if out is root:
+        raise KeyError(panel_id)
+    return out
+
+
+def swap_panels(root: Node, id_a: str, id_b: str) -> Node:
+    if id_a == id_b:
+        raise ValueError("cannot swap a panel with itself")
+    lookup = {p.id: p for p in iter_panels(root)}
+    if id_a not in lookup or id_b not in lookup:
+        missing = {id_a, id_b} - lookup.keys()
+        raise KeyError(", ".join(sorted(missing)))
+
+    def rec(node: Node) -> Node:
+        if isinstance(node, PanelNode):
+            if node.id == id_a:
+                return lookup[id_b]
+            if node.id == id_b:
+                return lookup[id_a]
+            return node
+        return SplitNode(node.orientation, node.ratios,
+                         tuple(rec(c) for c in node.children))
+
+    return rec(root)
+
+
+def set_panel_size(root: Node, panel_id: str, axis: str, size_mm: float,
+                   page_w_mm: float, page_h_mm: float, gutter_mm: float) -> Node:
+    if axis not in ("w", "h"):
+        raise ValueError(f"axis must be 'w' or 'h', got {axis!r}")
+    controlling = "row" if axis == "w" else "column"
+    target_path: list[int] | None = None
+
+    def find(node: Node, path: list[int]) -> None:
+        nonlocal target_path
+        if isinstance(node, PanelNode):
+            if node.id == panel_id:
+                target_path = list(path)
+            return
+        for i, child in enumerate(node.children):
+            find(child, path + [i])
+
+    find(root, [])
+    if target_path is None:
+        raise KeyError(panel_id)
+
+    # Deepest ancestor SplitNode controlling this axis (row -> w, column -> h)
+    # that has >= 2 children -- that's the split whose ratios we adjust.
+    best: tuple[list[int], int] | None = None  # (split path, child index within it)
+    node: Node = root
+    for depth, idx in enumerate(target_path):
+        assert isinstance(node, SplitNode)
+        if node.orientation == controlling and len(node.children) >= 2:
+            best = (target_path[:depth], idx)
+        node = node.children[idx]
+    if best is None:
+        raise ValueError(f"axis {axis!r} not adjustable for this panel")
+    split_path, child_idx = best
+
+    # Walk from the page rect down to that split, tracking rect extent along
+    # both axes the same way flatten() does, to get the split's actual avail
+    # mm along the controlling axis.
+    rect_w, rect_h = page_w_mm, page_h_mm
+    node = root
+    for idx in split_path:
+        assert isinstance(node, SplitNode)
+        n = len(node.children)
+        if node.orientation == "row":
+            avail = rect_w - (n - 1) * gutter_mm
+            rect_w = avail * node.ratios[idx]
+        else:
+            avail = rect_h - (n - 1) * gutter_mm
+            rect_h = avail * node.ratios[idx]
+        node = node.children[idx]
+    assert isinstance(node, SplitNode)
+    n = len(node.children)
+    avail = (rect_w if controlling == "row" else rect_h) - (n - 1) * gutter_mm
+
+    if not MIN_PANEL_MM <= size_mm <= avail - MIN_PANEL_MM * (n - 1):
+        raise ValueError(
+            f"size {size_mm:g} mm out of range ({MIN_PANEL_MM:g}-"
+            f"{avail - MIN_PANEL_MM * (n - 1):g} mm here)")
+    remainder = avail - size_mm
+    old_others = sum(r for i, r in enumerate(node.ratios) if i != child_idx)
+    new_ratios = []
+    for i, r in enumerate(node.ratios):
+        if i == child_idx:
+            new_ratios.append(size_mm / avail)
+        else:
+            share = (r / old_others) if old_others > 0 else 1.0 / (n - 1)
+            new_ratios.append(remainder * share / avail)
+    if any(nr * avail < MIN_PANEL_MM - 1e-9 for nr in new_ratios):
+        raise ValueError("adjustment would shrink a sibling below 5 mm")
+    return set_ratios(root, tuple(split_path), tuple(new_ratios))
