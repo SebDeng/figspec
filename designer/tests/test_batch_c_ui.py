@@ -262,3 +262,37 @@ def test_export_layout_preview_write_failure_reports_status_no_crash(
     win.export_layout_preview()  # must not raise
     assert win.statusBar().currentMessage() == f"Could not write {bad}"
     assert not bad.exists()
+
+
+def test_template_dialog_lists_all(qtbot):
+    from figspec_designer.ui.template_dialog import TemplateDialog
+    win = MainWindow()
+    qtbot.addWidget(win)
+    dlg = TemplateDialog(win.doc.target)
+    qtbot.addWidget(dlg)
+    assert dlg.list_widget.count() == 4
+    dlg.list_widget.setCurrentRow(0)
+    assert dlg.selected_key() in {"quantitative_grid", "hero_left",
+                                  "image_plate", "asymmetric"}
+    assert dlg.preview_label.pixmap() is not None
+
+
+def test_new_from_template_builds_doc(qtbot, monkeypatch):
+    # conftest's autouse fixture already patches confirm_discard -> True
+    win = MainWindow()
+    qtbot.addWidget(win)
+    monkeypatch.setattr(win, "_pick_template", lambda: "quantitative_grid")
+    win.new_from_template()
+    assert len(list(iter_panels(win.doc.tree))) == 6
+    assert win.current_path is None
+    assert win.dirty is False
+    assert win.windowTitle().startswith("Untitled")
+
+
+def test_new_from_template_respects_cancel(qtbot, monkeypatch):
+    win = MainWindow()
+    qtbot.addWidget(win)
+    before = win.doc.tree
+    monkeypatch.setattr(win, "_pick_template", lambda: None)
+    win.new_from_template()
+    assert win.doc.tree is before

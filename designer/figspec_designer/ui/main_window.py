@@ -4,10 +4,12 @@ import json
 from pathlib import Path
 from PySide6.QtCore import Qt, QSettings
 from PySide6.QtGui import QAction, QKeySequence
-from PySide6.QtWidgets import (QFileDialog, QHBoxLayout, QInputDialog, QMainWindow,
-                               QMessageBox, QApplication, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QDialog, QFileDialog, QHBoxLayout, QInputDialog,
+                               QMainWindow, QMessageBox, QApplication,
+                               QVBoxLayout, QWidget)
 from figspec.snippet import generate_snippet
 from figspec.spec import Constraints, Target
+from figspec.templates import TEMPLATES
 from figspec_designer.document import DesignerDocument, MissingDesignerData
 from figspec_designer.model import ops
 from figspec_designer.model.history import History
@@ -86,6 +88,7 @@ class MainWindow(QMainWindow):
             return a
 
         file_menu = self.menuBar().addMenu("File")
+        act(file_menu, "New from Template…", "Ctrl+N", self.new_from_template)
         act(file_menu, "Open…", "Ctrl+O", self._open_dialog)
         self.recent_menu = file_menu.addMenu("Open Recent")
         self.recent_menu.aboutToShow.connect(self._rebuild_recent_menu)
@@ -644,3 +647,30 @@ class MainWindow(QMainWindow):
         err = self.open_json(path)
         if err and self.isVisible():
             QMessageBox.warning(self, "Cannot open", err)
+
+    def _pick_template(self) -> str | None:
+        """Factored out so tests can monkeypatch past the modal dialog."""
+        from figspec_designer.ui.template_dialog import TemplateDialog
+        dlg = TemplateDialog(self.doc.target, self)
+        if dlg.exec() != QDialog.Accepted:
+            return None
+        return dlg.selected_key()
+
+    def new_from_template(self) -> None:
+        if not self.confirm_discard():
+            return
+        key = self._pick_template()
+        if key is None:
+            return
+        self.doc = DesignerDocument(tree=TEMPLATES[key].build(),
+                                    target=self.doc.target,
+                                    constraints=self.doc.constraints)
+        self.history = History(self.doc.tree)
+        self.selected_panel_id = None
+        self._cancel_swap_pending(notify=False)
+        self.current_path = None
+        self.refresh()
+        # A template you just picked is 2 clicks to recreate — treat like a
+        # fresh window, not unsaved user work (no close-nag until edited).
+        self.dirty = False
+        self._refresh_title()
