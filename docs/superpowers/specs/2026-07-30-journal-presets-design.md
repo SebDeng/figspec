@@ -1,7 +1,7 @@
 # 期刊预设修正与每预设约束（已批准）
 
 **日期**：2026-07-30
-**状态**：Approved（基于四社官方规范调研——约 30 条关键数字经独立核验零错配；用户对修正表与方案回复"都做"）
+**状态**：Approved（基于四社官方规范调研——约 25 条关键数字经独立核验零错配；用户对修正表与方案回复"都做"）
 **数据来源**：2026-07-30 调研 workflow（Nature/Science/APS/ACS 官方文档），完整结构化结果与来源 URL 见调研输出；本次落库为 `docs/journal-figure-specs.md`。
 
 ## 1. PRESETS 修正与扩充（`designer/figspec_designer/presets.py`）
@@ -21,7 +21,7 @@
 | preset 族 | min_font_pt | max_font_pt | min_linewidth_pt | 备注 |
 |---|---|---|---|---|
 | nature_* / nature_research_* | 5.0 | 7.0 | 0.25 | panel 标号 8pt 为唯一例外；NComms 线宽 ≥1pt 的特例记录在文档不进预设 |
-| science_* | 5.0 | 10.0 | 0.5 | 字号 HTML 口径（5 底 7 目标），panel 标号 10pt；线宽取两口径（0.5 vs 0.28）中保守者 |
+| science_* | 5.0 | 10.0 | 0.5 | 字号 HTML 口径，panel 标号 10pt；线宽取两口径（0.5 vs 0.28）中保守者 |
 | acs_* | 4.5 | 8.0 | 0.5 | ACS 无官方字号上限，8.0 为工具默认值（文档标注非官方） |
 | aps_* | 8.0 | 10.0 | 0.5 | **派生值**：APS 规定最小大写字高 2mm，按 Helvetica cap≈0.717em 折算名义 ≈7.9pt，取 8.0，文档明示派生逻辑 |
 
