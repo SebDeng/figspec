@@ -105,3 +105,24 @@ def test_topbar_set_values_syncs_constraint_spins(qtbot):
     assert tb.min_font_spin.value() == pytest.approx(7.0)
     assert tb.max_font_spin.value() == pytest.approx(9.0)
     assert tb.min_lw_spin.value() == pytest.approx(0.8)
+
+
+# ---- Task 1: corrected journal presets + constraints ----------------------
+
+def test_preset_values_corrected():
+    from figspec_designer import presets
+    assert presets.PRESETS["acs_single"] == 84.7
+    assert presets.PRESETS["acs_double"] == 177.8
+    assert presets.PRESETS["aps_single"] == 85.0
+    assert presets.PRESETS["aps_double"] == 178.0
+    assert presets.PRESETS["nature_research_single"] == 88.0
+    assert presets.PRESETS["science_double"] == 183.0
+
+
+def test_all_presets_have_constraints():
+    from figspec_designer import presets
+    assert set(presets.PRESET_CONSTRAINTS) == set(presets.PRESETS)
+    assert presets.PRESET_CONSTRAINTS["nature_single"] == {
+        "min_font_pt": 5.0, "max_font_pt": 7.0, "min_linewidth_pt": 0.25}
+    assert presets.PRESET_CONSTRAINTS["acs_double"]["min_font_pt"] == 4.5
+    assert presets.PRESET_CONSTRAINTS["aps_single"]["min_font_pt"] == 8.0
