@@ -196,3 +196,14 @@ def test_open_syncs_constraint_spinboxes(qtbot, tmp_path):
     assert win2.topbar.min_font_spin.value() == pytest.approx(6.0)
     assert win2.topbar.max_font_spin.value() == pytest.approx(9.0)
     assert win2.topbar.min_lw_spin.value() == pytest.approx(0.7)
+
+
+def test_preset_export_with_aps_single(qtbot):
+    win = MainWindow()
+    qtbot.addWidget(win)
+    win.topbar.preset_combo.setCurrentText("aps_single")
+    data = json.loads(win.export_json_text())
+    assert data["constraints"]["min_font_pt"] == 8.0
+    assert data["constraints"]["max_font_pt"] == 10.0
+    assert data["constraints"]["min_linewidth_pt"] == 0.5
+    assert data["target"]["figure_width_mm"] == 85.0

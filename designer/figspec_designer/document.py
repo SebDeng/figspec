@@ -25,7 +25,7 @@ class DesignerDocument:
             target=Target("nature_double", presets.PRESETS["nature_double"],
                           presets.DEFAULT_HEIGHT_MM, presets.DEFAULT_DPI,
                           presets.DEFAULT_GUTTER_MM),
-            constraints=Constraints(),
+            constraints=Constraints(**presets.PRESET_CONSTRAINTS["nature_double"]),
         )
 
     def panel_rects(self) -> list[PanelRect]:

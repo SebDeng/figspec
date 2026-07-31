@@ -1,6 +1,6 @@
 import json
 import pytest
-from figspec.spec import SpecError
+from figspec.spec import Constraints, SpecError
 from figspec_designer.document import DesignerDocument, MissingDesignerData
 from figspec_designer.model.ops import split_panel
 from figspec_designer.model.tree import iter_panels
@@ -47,3 +47,8 @@ def test_open_without_designer_sidecar():
 def test_open_malformed_spec():
     with pytest.raises(SpecError):
         DesignerDocument.from_spec_dict({"nope": 1})
+
+
+def test_default_document_constraints():
+    doc = DesignerDocument.default()
+    assert doc.constraints == Constraints(5.0, 7.0, 0.25)
