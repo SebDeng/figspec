@@ -3,6 +3,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QToolButton,
                                QVBoxLayout, QWidget)
+from figspec_designer.ui.theme import repolish
 
 _BTN_SPECS = [("btn_split_right", "▸", "split_right", "Split right (Cmd+D)"),
               ("btn_split_down", "▾", "split_down", "Split down (Shift+Cmd+D)"),
@@ -17,51 +18,55 @@ class PanelWidget(QFrame):
         self.panel_id = panel_id
         self.setObjectName("panel")
         self.setProperty("selected", False)
-        self._apply_style()
 
         root = QVBoxLayout(self)
         root.setContentsMargins(4, 4, 4, 4)
 
         bar = QHBoxLayout()
         bar.addStretch(1)
+
+        # Create panelActions container
+        actions = QWidget(self)
+        actions.setObjectName("panelActions")
+        actions.setAttribute(Qt.WA_StyledBackground, True)
+        actions_layout = QHBoxLayout(actions)
+        actions_layout.setContentsMargins(2, 2, 2, 2)
+        actions_layout.setSpacing(0)
+
         self._buttons = []
         for name, glyph, act, tip in _BTN_SPECS:
-            btn = QToolButton(self)
+            btn = QToolButton(actions)
             btn.setObjectName(name)
             btn.setText(glyph)
             btn.setToolTip(tip)
             btn.setAutoRaise(True)
             btn.clicked.connect(lambda _=False, a=act: self.action.emit(a, self.panel_id))
-            btn.setVisible(False)
-            bar.addWidget(btn)
+            actions_layout.addWidget(btn)
             self._buttons.append(btn)
+
+        actions.setVisible(False)
+        self._actions = actions
+        bar.addWidget(actions)
         root.addLayout(bar)
 
         self.label_widget = QLabel(label_text, self)
+        self.label_widget.setObjectName("panelLetter")
         self.label_widget.setAlignment(Qt.AlignCenter)
-        self.label_widget.setStyleSheet("font-size: 24px; font-weight: bold; color: #555;")
         root.addWidget(self.label_widget, stretch=1)
-
-    def _apply_style(self) -> None:
-        selected = self.property("selected")
-        border = "2px solid #0F62FE" if selected else "1px solid #b0b0b0"
-        self.setStyleSheet(f"QFrame#panel {{ background: #fafafa; border: {border}; }}")
 
     def set_label(self, text: str) -> None:
         self.label_widget.setText(text)
 
     def set_selected(self, on: bool) -> None:
         self.setProperty("selected", bool(on))
-        self._apply_style()
+        repolish(self)
 
     def enterEvent(self, event) -> None:
-        for b in self._buttons:
-            b.setVisible(True)
+        self._actions.setVisible(True)
         super().enterEvent(event)
 
     def leaveEvent(self, event) -> None:
-        for b in self._buttons:
-            b.setVisible(False)
+        self._actions.setVisible(False)
         super().leaveEvent(event)
 
     def mousePressEvent(self, event) -> None:

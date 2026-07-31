@@ -2,6 +2,7 @@
 from __future__ import annotations
 import json
 from pathlib import Path
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (QFileDialog, QHBoxLayout, QMainWindow,
                                QMessageBox, QApplication, QVBoxLayout, QWidget)
@@ -12,12 +13,14 @@ from figspec_designer.model.history import History
 from figspec_designer.model.tree import iter_panels
 from figspec_designer.ui.canvas import Canvas
 from figspec_designer.ui.sidebar import Sidebar
+from figspec_designer.ui.theme import apply_theme
 from figspec_designer.ui.toolbar import TopBar
 
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        apply_theme(QApplication.instance())
         self.setWindowTitle("FigSpec Designer")
         self.resize(1100, 700)
         self.doc = DesignerDocument.default()
@@ -30,6 +33,8 @@ class MainWindow(QMainWindow):
         self.sidebar.setFixedWidth(260)
 
         central = QWidget()
+        central.setObjectName("chrome")
+        central.setAttribute(Qt.WA_StyledBackground, True)
         outer = QVBoxLayout(central)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(self.topbar)
