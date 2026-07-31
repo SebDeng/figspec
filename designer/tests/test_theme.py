@@ -71,3 +71,17 @@ def test_topbar_theme_hooks(qtbot):
     qtbot.addWidget(tb)
     assert tb.objectName() == "topbar"
     assert tb.btn_copy.objectName() == "primary"
+
+
+def test_asset_missing_border_yields_to_selection():
+    # Regression: PanelWidget[assetMissing="true"] must be declared BEFORE
+    # the selected/swapArmed rules -- equal-specificity QSS is
+    # last-declared-wins, so if assetMissing came after selected, selecting
+    # a missing-asset panel would silently drop the 2px ink selection
+    # border (the missingBadge label still communicates the missing state
+    # on a selected panel, so the border can safely yield to selection).
+    missing_idx = theme.QSS.index('PanelWidget[assetMissing="true"]')
+    selected_idx = theme.QSS.index('PanelWidget[selected="true"]')
+    swap_armed_idx = theme.QSS.index('PanelWidget[swapArmed="true"]')
+    assert missing_idx < selected_idx
+    assert missing_idx < swap_armed_idx

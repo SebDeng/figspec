@@ -10,6 +10,8 @@ class PanelNode:
     id: str
     content_hint: str = ""
     aspect_lock: float | None = None
+    asset: str | None = None
+    asset_px: tuple[int, int] | None = None
 
 
 @dataclass(frozen=True)
@@ -45,6 +47,9 @@ def to_dict(node: Node) -> dict:
         d = {"type": "panel", "id": node.id, "content_hint": node.content_hint}
         if node.aspect_lock is not None:
             d["aspect_lock"] = node.aspect_lock
+        if node.asset is not None:
+            d["asset"] = node.asset
+            d["asset_px"] = list(node.asset_px)
         return d
     return {
         "type": "split",
@@ -57,8 +62,11 @@ def to_dict(node: Node) -> dict:
 def from_dict(d: dict) -> Node:
     kind = d.get("type")
     if kind == "panel":
+        raw_px = d.get("asset_px")
         return PanelNode(id=d["id"], content_hint=d.get("content_hint", ""),
-                         aspect_lock=d.get("aspect_lock"))
+                         aspect_lock=d.get("aspect_lock"),
+                         asset=d.get("asset"),
+                         asset_px=tuple(int(v) for v in raw_px) if raw_px else None)
     if kind == "split":
         return SplitNode(
             d["orientation"],

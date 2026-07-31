@@ -2,7 +2,7 @@ import pytest
 from figspec.spec import Target
 from figspec_designer.document import DesignerDocument
 from figspec_designer.model.ops import MIN_PANEL_MM, split_panel
-from figspec_designer.model.tree import iter_panels
+from figspec_designer.model.tree import PanelNode, iter_panels
 from figspec_designer.ui.canvas import Canvas
 
 
@@ -139,6 +139,22 @@ def test_swap_armed_persists_across_rebuild(qtbot):
     # armed cue must be reapplied afterward -- same contract as selection.
     canvas.set_document(doc)
     assert canvas.panel_widgets()[pid].property("swapArmed") is True
+
+
+def test_load_thumb_caps_larger_axis(qtbot, tmp_path):
+    # Regression: _load_thumb capped only pix.width(), so a tall portrait
+    # asset (e.g. 100x3000) bypassed the 1200px cap entirely on height.
+    from PySide6.QtGui import QImage
+    img = QImage(100, 3000, QImage.Format_RGB32)
+    img.fill(0xFFFFFFFF)
+    path = tmp_path / "tall.png"
+    img.save(str(path))
+    canvas = Canvas()
+    qtbot.addWidget(canvas)
+    node = PanelNode(id="p1", asset=str(path), asset_px=(100, 3000))
+    thumb, missing = canvas._load_thumb(node)
+    assert missing is False
+    assert thumb.height() <= 1200
 
 
 def test_blank_canvas_click_emits_select_none(qtbot):

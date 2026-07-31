@@ -31,6 +31,8 @@ class Sidebar(QWidget):
     square_requested = Signal(str)  # (panel_id)
     aspect_lock_toggled = Signal(str, object)  # (panel_id, float|None)
     placement_copy_requested = Signal()
+    snippet_copy_requested = Signal()
+    asset_remove_requested = Signal(str)  # (panel_id)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -121,6 +123,43 @@ class Sidebar(QWidget):
         self.btn_copy_placement.setObjectName("copyPlacementButton")
         outer.addWidget(self.btn_copy_placement)
 
+        self.btn_copy_snippet = QPushButton("Copy matplotlib Snippet")
+        self.btn_copy_snippet.setObjectName("copySnippetButton")
+        outer.addWidget(self.btn_copy_snippet)
+
+        # ---- external asset block (hidden unless the panel has one) ----
+        self.asset_box = QWidget()
+        self.asset_box.setObjectName("assetBox")
+        asset_layout = QVBoxLayout(self.asset_box)
+        asset_layout.setContentsMargins(0, 8, 0, 0)
+        asset_layout.setSpacing(6)
+        asset_header = QLabel("Asset")
+        asset_header.setObjectName("sectionHeader")
+        asset_header.setFont(smallcaps_font())
+        asset_layout.addWidget(asset_header)
+        asset_grid = QGridLayout()
+        asset_grid.setSpacing(8)
+        self.lbl_asset_name = QLabel("—")
+        self.lbl_asset_px = QLabel("—")
+        self.lbl_asset_name.setObjectName("fieldValue")
+        self.lbl_asset_px.setObjectName("fieldValue")
+        self.lbl_asset_dpi = QLabel("—")
+        self.lbl_asset_dpi.setObjectName("dpiValue")
+        for row, (text, widget) in enumerate([("File", self.lbl_asset_name),
+                                              ("Pixels", self.lbl_asset_px),
+                                              ("Effective", self.lbl_asset_dpi)]):
+            left = QLabel(text)
+            left.setObjectName("fieldLabel")
+            widget.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            asset_grid.addWidget(left, row, 0)
+            asset_grid.addWidget(widget, row, 1)
+        asset_layout.addLayout(asset_grid)
+        self.btn_remove_asset = QPushButton("Remove Asset")
+        self.btn_remove_asset.setObjectName("removeAssetButton")
+        asset_layout.addWidget(self.btn_remove_asset)
+        outer.addWidget(self.asset_box)
+        self.asset_box.setVisible(False)
+
         # Stretch
         outer.addStretch(1)
 
@@ -135,6 +174,8 @@ class Sidebar(QWidget):
         self.chk_aspect_lock.toggled.connect(self._emit_aspect_lock)
         self.chk_aspect_lock.setEnabled(False)
         self.btn_copy_placement.clicked.connect(self.placement_copy_requested.emit)
+        self.btn_copy_snippet.clicked.connect(self.snippet_copy_requested.emit)
+        self.btn_remove_asset.clicked.connect(self._emit_asset_remove)
 
     def _emit_hint(self) -> None:
         if self._panel_id is None:
@@ -168,6 +209,10 @@ class Sidebar(QWidget):
         if self._panel_id is not None:
             self.square_requested.emit(self._panel_id)
 
+    def _emit_asset_remove(self) -> None:
+        if self._panel_id is not None:
+            self.asset_remove_requested.emit(self._panel_id)
+
     def _emit_aspect_lock(self, checked: bool) -> None:
         if self._panel_id is None:
             return
@@ -194,7 +239,11 @@ class Sidebar(QWidget):
 
     def show_panel(self, panel_id: str, label: str, rect: PanelRect,
                    dpi: int, content_hint: str, aspect_lock: float | None = None,
-                   w_adjustable: bool = True, h_adjustable: bool = True) -> None:
+                   w_adjustable: bool = True, h_adjustable: bool = True,
+                   asset_name: str | None = None,
+                   asset_px: tuple[int, int] | None = None,
+                   eff_dpi: float | None = None, dpi_level: str = "ok",
+                   asset_missing: bool = False) -> None:
         self._panel_id = panel_id
         w_px, h_px, figsize = derive(rect, dpi)
         self.lbl_label.setText(label)
@@ -224,6 +273,21 @@ class Sidebar(QWidget):
         self.hint_edit.setText(content_hint)
         self._last_hint = content_hint
 
+        from figspec_designer.ui.theme import repolish
+        if asset_name is None:
+            self.asset_box.setVisible(False)
+        else:
+            self.asset_box.setVisible(True)
+            self.lbl_asset_name.setText(
+                asset_name + (" (missing)" if asset_missing else ""))
+            self.lbl_asset_px.setText(
+                f"{asset_px[0]} × {asset_px[1]} px" if asset_px else "—")
+            self.lbl_asset_dpi.setText(
+                f"{eff_dpi:.0f} dpi" if eff_dpi is not None else "—")
+            self.lbl_asset_dpi.setProperty(
+                "level", "bad" if asset_missing else dpi_level)
+            repolish(self.lbl_asset_dpi)
+
     def clear(self) -> None:
         self._panel_id = None
         self._last_hint = None
@@ -247,3 +311,4 @@ class Sidebar(QWidget):
         self.btn_square.setEnabled(False)
         self.hint_edit.clear()
         self.hint_edit.setEnabled(False)
+        self.asset_box.setVisible(False)

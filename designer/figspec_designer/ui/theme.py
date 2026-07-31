@@ -15,6 +15,9 @@ PANEL_BG = "#FFFFFF"
 LETTER = "#C6C3BC"
 AMBER_BG = "#F5A623"
 AMBER_INK = "#3D2B00"
+DPI_OK = "#3D7A44"
+DPI_WARN = "#B07D2A"
+DPI_BAD = "#B04A3A"
 
 QSS = f"""
 QMainWindow, QWidget#chrome {{ background: {CHROME}; }}
@@ -25,6 +28,7 @@ Canvas {{ background: {CANVAS}; }}
 QWidget#page {{ background: transparent; border: none; }}
 
 PanelWidget {{ background: {PANEL_BG}; border: 1px solid {HAIRLINE}; border-radius: 4px; }}
+PanelWidget[assetMissing="true"] {{ border: 1px solid {AMBER_BG}; }}
 PanelWidget[selected="true"] {{ border: 2px solid {INK}; }}
 PanelWidget[swapArmed="true"] {{ border: 2px dashed {AMBER_BG}; }}
 QLabel#panelLetter {{ color: {LETTER}; font-size: 20px; font-weight: 600; background: transparent; border: none; }}
@@ -36,6 +40,14 @@ QWidget#panelActions QToolButton:hover {{ background: {CANVAS}; color: {INK}; }}
 
 QLabel#aspectBadge {{ background: {AMBER_BG}; color: {AMBER_INK}; font-size: 10px;
     font-weight: 700; padding: 1px 6px; border-radius: 8px; }}
+
+QLabel#missingBadge {{
+    background: {AMBER_BG}; color: {AMBER_INK}; border-radius: 4px;
+    padding: 1px 6px; font-size: 10px;
+}}
+QLabel#panelLetter[onImage="true"] {{
+    background: rgba(255, 255, 255, 0.75); border-radius: 6px;
+}}
 
 QSplitter::handle {{ background: transparent; }}
 QSplitter::handle:hover, QSplitter::handle:pressed {{ background: {DIVIDER}; }}
@@ -63,6 +75,10 @@ QLineEdit#hintEdit {{ background: transparent; border: none; border-bottom: 1px 
     border-radius: 0; padding: 3px 0; color: {INK}; }}
 QLineEdit#hintEdit:focus {{ border-bottom: 2px solid {INK}; }}
 QLineEdit#hintEdit:disabled {{ border-bottom-color: {HAIRLINE}; color: {INK_MUTED}; }}
+
+QLabel#dpiValue[level="ok"] {{ color: {DPI_OK}; font-weight: 600; }}
+QLabel#dpiValue[level="warn"] {{ color: {DPI_WARN}; font-weight: 600; }}
+QLabel#dpiValue[level="bad"] {{ color: {DPI_BAD}; font-weight: 600; }}
 """
 
 

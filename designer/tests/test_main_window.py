@@ -267,6 +267,21 @@ def test_open_syncs_constraint_spinboxes(qtbot, tmp_path):
     assert win2.topbar.min_lw_spin.value() == pytest.approx(0.7)
 
 
+def test_topbar_edit_preserves_min_effective_dpi(qtbot):
+    # Regression: _sync_settings() used to rebuild Constraints from only the
+    # three topbar fields, silently resetting min_effective_dpi to its
+    # dataclass default (300) on every topbar edit -- even one unrelated to
+    # DPI, like nudging the gutter.
+    win = MainWindow()
+    qtbot.addWidget(win)
+    win.doc.constraints.min_effective_dpi = 450
+    win.topbar.gutter_spin.setValue(5.0)
+    assert win.doc.constraints.min_effective_dpi == 450
+    assert win.doc.constraints.min_font_pt == pytest.approx(win.topbar.min_font_spin.value())
+    assert win.doc.constraints.max_font_pt == pytest.approx(win.topbar.max_font_spin.value())
+    assert win.doc.constraints.min_linewidth_pt == pytest.approx(win.topbar.min_lw_spin.value())
+
+
 def test_preset_export_with_aps_single(qtbot):
     win = MainWindow()
     qtbot.addWidget(win)

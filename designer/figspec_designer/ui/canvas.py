@@ -1,6 +1,7 @@
 """Renders the layout tree as nested GutterSplitters inside a page frame."""
 from __future__ import annotations
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QLabel, QWidget
 from figspec_designer.document import DesignerDocument
 from figspec_designer.model import ops
@@ -19,6 +20,7 @@ class Canvas(QWidget):
     # empty-string panel id instead. `object` passes None through as-is.
     panel_action = Signal(str, object)      # (action, panel_id | None)
     ratios_committed = Signal(tuple, tuple)  # (path, ratios)
+    asset_dropped = Signal(str, str)         # (panel_id, absolute file path)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -29,6 +31,7 @@ class Canvas(QWidget):
         self._splitters: dict[tuple[int, ...], GutterSplitter] = {}
         self._selected_id: str | None = None
         self._swap_armed_id: str | None = None
+        self._asset_base = None
         self.px_per_mm = 1.0
         self._feedback = QLabel(self)
         self._feedback.setObjectName("dragFeedback")
@@ -41,8 +44,9 @@ class Canvas(QWidget):
     def splitters(self) -> dict[tuple[int, ...], GutterSplitter]:
         return dict(self._splitters)
 
-    def set_document(self, doc: DesignerDocument) -> None:
+    def set_document(self, doc: DesignerDocument, base_dir=None) -> None:
         self._doc = doc
+        self._asset_base = base_dir
         self._rebuild()
 
     def apply_selection(self, panel_id: str | None) -> None:
@@ -103,9 +107,12 @@ class Canvas(QWidget):
                     labels: dict[str, str], rects: dict) -> QWidget:
         if isinstance(node, PanelNode):
             violated = self._aspect_violated(node, rects)
+            thumb, missing = self._load_thumb(node)
             w = PanelWidget(node.id, labels.get(node.id, "?"),
-                            aspect_violated=violated)
+                            aspect_violated=violated,
+                            thumb=thumb, asset_missing=missing)
             w.action.connect(self.panel_action.emit)
+            w.asset_dropped.connect(self.asset_dropped.emit)
             panel_shadow(w)
             self._panels[node.id] = w
             return w
@@ -133,6 +140,24 @@ class Canvas(QWidget):
             return False
         current = rect.w_mm / rect.h_mm
         return abs(current - node.aspect_lock) / node.aspect_lock > 0.02
+
+    _THUMB_MAX = 1200  # px cap: canvas preview never needs full-res assets
+
+    def _load_thumb(self, node: PanelNode):
+        """(QPixmap|None, missing: bool) for a panel's asset, if any."""
+        if node.asset is None:
+            return None, False
+        from figspec.document import resolve_asset
+        path = resolve_asset(node.asset, self._asset_base)
+        if path is None:
+            return None, True
+        pix = QPixmap(str(path))
+        if pix.isNull():
+            return None, True
+        if max(pix.width(), pix.height()) > self._THUMB_MAX:
+            pix = pix.scaled(self._THUMB_MAX, self._THUMB_MAX,
+                             Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        return pix, False
 
     def _axis_mm(self, node: Node, path: tuple[int, ...]) -> float:
         """Length in mm of this splitter's axis, derived from the flattened rects."""

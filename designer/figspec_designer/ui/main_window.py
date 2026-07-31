@@ -1,12 +1,17 @@
 """Assembles canvas + sidebar + top bar and owns the document/undo state."""
 from __future__ import annotations
+import dataclasses
 import json
 from pathlib import Path
 from PySide6.QtCore import Qt, QSettings
 from PySide6.QtGui import QAction, QKeySequence
-from PySide6.QtWidgets import (QFileDialog, QHBoxLayout, QInputDialog, QMainWindow,
-                               QMessageBox, QApplication, QVBoxLayout, QWidget)
-from figspec.spec import Constraints, Target
+from PySide6.QtWidgets import (QDialog, QFileDialog, QHBoxLayout, QInputDialog,
+                               QMainWindow, QMessageBox, QApplication,
+                               QVBoxLayout, QWidget)
+from figspec.document import absolutize_assets
+from figspec.snippet import generate_snippet
+from figspec.spec import Target
+from figspec.templates import TEMPLATES
 from figspec_designer.document import DesignerDocument, MissingDesignerData
 from figspec_designer.model import ops
 from figspec_designer.model.history import History
@@ -53,6 +58,7 @@ class MainWindow(QMainWindow):
 
         self.canvas.panel_action.connect(lambda a, pid: self.do_action(a, pid))
         self.canvas.ratios_committed.connect(self.apply_ratios)
+        self.canvas.asset_dropped.connect(self._on_asset_dropped)
         self.topbar.settings_changed.connect(self._on_settings_changed)
         self.topbar.save_requested.connect(self.save)
         self.topbar.copy_requested.connect(self.copy_json)
@@ -62,6 +68,8 @@ class MainWindow(QMainWindow):
         self.sidebar.square_requested.connect(self._on_square)
         self.sidebar.aspect_lock_toggled.connect(self._on_aspect_lock)
         self.sidebar.placement_copy_requested.connect(self.copy_placement_table)
+        self.sidebar.snippet_copy_requested.connect(self.copy_snippet)
+        self.sidebar.asset_remove_requested.connect(self._on_asset_removed)
 
         self._make_menus()
         # Init-time doc/topbar sync only -- NOT _on_settings_changed(),
@@ -82,6 +90,7 @@ class MainWindow(QMainWindow):
             return a
 
         file_menu = self.menuBar().addMenu("File")
+        act(file_menu, "New from Template…", "Ctrl+N", self.new_from_template)
         act(file_menu, "Open…", "Ctrl+O", self._open_dialog)
         self.recent_menu = file_menu.addMenu("Open Recent")
         self.recent_menu.aboutToShow.connect(self._rebuild_recent_menu)
@@ -89,6 +98,8 @@ class MainWindow(QMainWindow):
         act(file_menu, "Save As…", "Ctrl+Shift+S", self.save_as)
         act(file_menu, "Copy JSON", "Ctrl+Shift+C", self.copy_json)
         act(file_menu, "Copy Placement Table", None, self.copy_placement_table)
+        act(file_menu, "Copy matplotlib Snippet", None, self.copy_snippet)
+        act(file_menu, "Export Layout Preview…", None, self.export_layout_preview)
         edit_menu = self.menuBar().addMenu("Edit")
         act(edit_menu, "Undo", "Ctrl+Z", self.undo)
         act(edit_menu, "Redo", "Ctrl+Shift+Z", self.redo)
@@ -136,9 +147,30 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"{name}{dot} — FigSpec Designer")
 
     def refresh(self) -> None:
-        self.canvas.set_document(self.doc)
+        self.canvas.set_document(self.doc, base_dir=self._asset_base_dir())
         self.canvas.apply_selection(self.selected_panel_id)
         self._refresh_sidebar()
+
+    def _asset_base_dir(self) -> Path | None:
+        return self.current_path.parent if self.current_path else None
+
+    def _on_asset_dropped(self, panel_id: str, file_path: str) -> None:
+        from PySide6.QtGui import QImageReader
+        size = QImageReader(file_path).size()
+        if not size.isValid():
+            self.statusBar().showMessage("Cannot read image file", 3000)
+            return
+        try:
+            self._push_tree(ops.set_asset(self.doc.tree, panel_id, file_path,
+                                          (size.width(), size.height())))
+        except KeyError:
+            self.statusBar().showMessage("Panel no longer exists", 3000)
+
+    def _on_asset_removed(self, panel_id: str) -> None:
+        try:
+            self._push_tree(ops.set_asset(self.doc.tree, panel_id, None, None))
+        except KeyError:
+            pass
 
     def _refresh_sidebar(self) -> None:
         pid = self.selected_panel_id
@@ -149,11 +181,27 @@ class MainWindow(QMainWindow):
             return
         rect = next(r for r in self.doc.panel_rects() if r.panel_id == pid)
         panel = panels[pid]
+        from pathlib import Path as _P
+        from figspec_designer.model.flatten import effective_dpi
+        from figspec.document import resolve_asset
+        asset_name = asset_px = eff = None
+        dpi_level, missing = "ok", False
+        if panel.asset is not None:
+            asset_name = _P(panel.asset).name
+            asset_px = panel.asset_px
+            eff = effective_dpi(panel.asset_px, rect.w_mm, rect.h_mm)
+            floor = self.doc.constraints.min_effective_dpi
+            dpi_level = ("ok" if eff >= floor
+                         else "warn" if eff >= 0.67 * floor else "bad")
+            missing = resolve_asset(panel.asset, self._asset_base_dir()) is None
         self.sidebar.show_panel(pid, self.doc.labels()[pid], rect,
                                 self.doc.target.dpi, panel.content_hint,
                                 aspect_lock=panel.aspect_lock,
                                 w_adjustable=self._axis_adjustable(pid, "w"),
-                                h_adjustable=self._axis_adjustable(pid, "h"))
+                                h_adjustable=self._axis_adjustable(pid, "h"),
+                                asset_name=asset_name, asset_px=asset_px,
+                                eff_dpi=eff, dpi_level=dpi_level,
+                                asset_missing=missing)
 
     def _axis_adjustable(self, panel_id: str, axis: str) -> bool:
         """Probe whether axis can be resized on the CURRENT tree, without
@@ -374,7 +422,12 @@ class MainWindow(QMainWindow):
         (preset, width, height, dpi, gutter,
          min_font, max_font, min_lw) = self.topbar.values()
         self.doc.target = Target(preset, width, height, dpi, gutter)
-        self.doc.constraints = Constraints(min_font, max_font, min_lw)
+        # replace(), not Constraints(...) -- the topbar only owns these three
+        # fields; a fresh Constraints() would silently reset the rest (e.g.
+        # min_effective_dpi) to their dataclass defaults on every edit.
+        self.doc.constraints = dataclasses.replace(
+            self.doc.constraints, min_font_pt=min_font, max_font_pt=max_font,
+            min_linewidth_pt=min_lw)
         self.refresh()
 
     def _on_settings_changed(self) -> None:
@@ -399,8 +452,27 @@ class MainWindow(QMainWindow):
         QApplication.clipboard().setText("\n".join(rows) + "\n")
         self.statusBar().showMessage("Placement table copied", 3000)
 
+    def copy_snippet(self) -> None:
+        name = self.current_path.name if self.current_path else "Untitled"
+        QApplication.clipboard().setText(
+            generate_snippet(self.doc.to_spec_dict(), name))
+        self.statusBar().showMessage("matplotlib snippet copied", 3000)
+
+    def export_layout_preview(self) -> None:
+        from figspec_designer.ui.preview_export import render_layout_png
+        path, _ = QFileDialog.getSaveFileName(self, "Export layout preview",
+                                              "layout.png", "PNG image (*.png)")
+        if not path:
+            return
+        if not Path(path).suffix:
+            path += ".png"
+        if render_layout_png(self.doc, path):
+            self.statusBar().showMessage(f"Layout preview exported to {path}", 3000)
+        else:
+            self.statusBar().showMessage(f"Could not write {path}", 3000)
+
     def save_json(self, path) -> None:
-        Path(path).write_text(self.export_json_text())
+        Path(path).write_text(self.doc.to_json(base_dir=Path(path).parent))
 
     def open_json(self, path) -> str | None:
         """Returns an error message, or None on success."""
@@ -418,6 +490,12 @@ class MainWindow(QMainWindow):
             # string, a panel node missing "id", non-iterable "ratios").
             # None of those should ever crash the packaged app.
             return f"cannot open: {e}"
+        # In-memory tree is absolute-or-bust (relativize only happens at
+        # write time) -- open_json's sidecar assets may be dir-relative, so
+        # absolutize before anything (undo history, first render) sees them.
+        # Otherwise a later Save As into a different directory would write
+        # that same now-dangling relative path unchanged.
+        self.doc.tree = absolutize_assets(self.doc.tree, Path(path).parent)
         self.history = History(self.doc.tree)
         self.selected_panel_id = None
         # A pending swap references panel ids from the doc we're about to
@@ -431,8 +509,8 @@ class MainWindow(QMainWindow):
                                self.doc.constraints.min_font_pt,
                                self.doc.constraints.max_font_pt,
                                self.doc.constraints.min_linewidth_pt)
-        self.refresh()
         self.current_path = Path(path)
+        self.refresh()
         self.dirty = False
         self._add_recent(self.current_path)
         self._refresh_title()
@@ -582,3 +660,30 @@ class MainWindow(QMainWindow):
         err = self.open_json(path)
         if err and self.isVisible():
             QMessageBox.warning(self, "Cannot open", err)
+
+    def _pick_template(self) -> str | None:
+        """Factored out so tests can monkeypatch past the modal dialog."""
+        from figspec_designer.ui.template_dialog import TemplateDialog
+        dlg = TemplateDialog(self.doc.target, self)
+        if dlg.exec() != QDialog.Accepted:
+            return None
+        return dlg.selected_key()
+
+    def new_from_template(self) -> None:
+        if not self.confirm_discard():
+            return
+        key = self._pick_template()
+        if key is None:
+            return
+        self.doc = DesignerDocument(tree=TEMPLATES[key].build(),
+                                    target=self.doc.target,
+                                    constraints=self.doc.constraints)
+        self.history = History(self.doc.tree)
+        self.selected_panel_id = None
+        self._cancel_swap_pending(notify=False)
+        self.current_path = None
+        self.refresh()
+        # A template you just picked is 2 clicks to recreate — treat like a
+        # fresh window, not unsaved user work (no close-nag until edited).
+        self.dirty = False
+        self._refresh_title()

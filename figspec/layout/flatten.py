@@ -60,3 +60,10 @@ def derive(rect: PanelRect, dpi: int) -> tuple[int, int, tuple[float, float]]:
     w_px = round(rect.w_mm / 25.4 * dpi)
     h_px = round(rect.h_mm / 25.4 * dpi)
     return w_px, h_px, (round(rect.w_mm / 25.4, 3), round(rect.h_mm / 25.4, 3))
+
+
+def effective_dpi(asset_px: tuple[int, int], w_mm: float, h_mm: float) -> float:
+    """Rendered DPI of an external asset in a panel: the SMALLER axis wins."""
+    if w_mm <= 0 or h_mm <= 0:
+        raise ValueError("panel dimensions must be positive")
+    return min(asset_px[0] / (w_mm / 25.4), asset_px[1] / (h_mm / 25.4))

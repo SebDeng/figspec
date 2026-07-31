@@ -9,17 +9,25 @@ _BTN_SPECS = [("btn_split_right", "▸", "split_right", "Split right (Cmd+D)"),
               ("btn_split_down", "▾", "split_down", "Split down (Shift+Cmd+D)"),
               ("btn_close", "✕", "close", "Delete panel (Cmd+Backspace)")]
 
+ASSET_EXTS = {".png", ".jpg", ".jpeg", ".tif", ".tiff"}
+
 
 class PanelWidget(QFrame):
     action = Signal(str, str)  # (action, panel_id)
+    asset_dropped = Signal(str, str)  # (panel_id, absolute file path)
+    ASSET_EXTS = ASSET_EXTS
 
     def __init__(self, panel_id: str, label_text: str, parent: QWidget | None = None,
-                *, aspect_violated: bool = False):
+                *, aspect_violated: bool = False, thumb: "QPixmap | None" = None,
+                asset_missing: bool = False):
         super().__init__(parent)
         self.panel_id = panel_id
+        self._thumb = thumb
         self.setObjectName("panel")
         self.setProperty("selected", False)
         self.setProperty("swapArmed", False)
+        self.setProperty("assetMissing", bool(asset_missing))
+        self.setAcceptDrops(True)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(4, 4, 4, 4)
@@ -30,6 +38,11 @@ class PanelWidget(QFrame):
         self.aspect_badge.setObjectName("aspectBadge")
         self.aspect_badge.setVisible(aspect_violated)
         bar.addWidget(self.aspect_badge)
+
+        self.missing_badge = QLabel("missing asset", self)
+        self.missing_badge.setObjectName("missingBadge")
+        self.missing_badge.setVisible(asset_missing)
+        bar.addWidget(self.missing_badge)
 
         bar.addStretch(1)
 
@@ -60,6 +73,8 @@ class PanelWidget(QFrame):
         self.label_widget = QLabel(label_text, self)
         self.label_widget.setObjectName("panelLetter")
         self.label_widget.setAlignment(Qt.AlignCenter)
+        if thumb is not None:
+            self.label_widget.setProperty("onImage", True)
         root.addWidget(self.label_widget, stretch=1)
 
     def set_label(self, text: str) -> None:
@@ -98,3 +113,43 @@ class PanelWidget(QFrame):
                        lambda: self.action.emit("equalize", self.panel_id))
         menu.addAction("Swap", lambda: self.action.emit("swap", self.panel_id))
         menu.exec(event.globalPos())
+
+    @staticmethod
+    def _accepts_mime(mime) -> bool:
+        if not mime.hasUrls():
+            return False
+        urls = mime.urls()
+        if len(urls) != 1 or not urls[0].isLocalFile():
+            return False
+        from pathlib import Path
+        return Path(urls[0].toLocalFile()).suffix.lower() in ASSET_EXTS
+
+    def dragEnterEvent(self, event) -> None:
+        if self._accepts_mime(event.mimeData()):
+            event.acceptProposedAction()
+
+    def dropEvent(self, event) -> None:
+        if self._accepts_mime(event.mimeData()):
+            self.asset_dropped.emit(
+                self.panel_id, event.mimeData().urls()[0].toLocalFile())
+            event.acceptProposedAction()
+
+    # 2px selected/swap-armed border + 1px breathing room -- scaling the
+    # thumb to the FULL widget rect let it paint over that border whenever
+    # the image's aspect matched the panel's (see paintEvent).
+    _THUMB_INSET_PX = 3
+
+    def paintEvent(self, event) -> None:
+        super().paintEvent(event)  # QSS card background/border first
+        if self._thumb is None or self._thumb.isNull():
+            return
+        from PySide6.QtCore import QSize
+        from PySide6.QtGui import QPainter
+        inset = self._THUMB_INSET_PX
+        target = self.size() - QSize(2 * inset, 2 * inset)
+        scaled = self._thumb.scaled(target, Qt.KeepAspectRatio,
+                                    Qt.SmoothTransformation)
+        painter = QPainter(self)
+        painter.drawPixmap(inset + (target.width() - scaled.width()) // 2,
+                           inset + (target.height() - scaled.height()) // 2, scaled)
+        painter.end()
