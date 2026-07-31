@@ -1,7 +1,7 @@
 import json
 import pytest
 from figspec.mcp_server import (close_panel_impl, lint_pdf_impl, list_presets_impl,
-                                new_spec_impl, read_spec_impl, set_panel_hint_impl,
+                                main, new_spec_impl, read_spec_impl, set_panel_hint_impl,
                                 split_panel_impl, write_spec_impl)
 from figspec.selftest.samples import write_samples
 
@@ -140,3 +140,53 @@ def test_lint_pdf_bad_min_font_pt(samples):
 def test_new_spec_bad_height_mm(tmp_path):
     out = new_spec_impl(str(tmp_path / "x.json"), height_mm="x")
     assert "error" in out and "height_mm" in out["error"]
+
+
+# --- F1: main() argv handling ---------------------------------------------
+
+def test_main_help_exits_zero_with_usage(capsys):
+    with pytest.raises(SystemExit) as exc:
+        main(["--help"])
+    assert exc.value.code == 0
+    assert "usage" in capsys.readouterr().out.lower()
+
+
+def test_main_version_exits_zero_with_name(capsys):
+    with pytest.raises(SystemExit) as exc:
+        main(["--version"])
+    assert exc.value.code == 0
+    assert "figspec-mcp" in capsys.readouterr().out
+
+
+def test_main_missing_fastmcp_prints_clean_error_not_traceback(monkeypatch, capsys):
+    import figspec.mcp_server as mcp_server
+
+    def _raise():
+        raise ImportError('fastmcp is not installed; run: pip install "figspec[mcp]"')
+
+    monkeypatch.setattr(mcp_server, "build_server", _raise)
+    rc = main([])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "Traceback" not in err
+    assert "fastmcp" in err
+
+
+# --- F2: new_spec_impl overwrite guard -------------------------------------
+
+def test_new_spec_impl_default_does_not_overwrite(tmp_path):
+    p = tmp_path / "fig.figspec.json"
+    new_spec_impl(str(p), preset="aps_single")
+    before = p.read_text()
+    out = new_spec_impl(str(p), preset="nature_double")
+    assert "error" in out and "already exists" in out["error"]
+    assert p.read_text() == before
+
+
+def test_new_spec_impl_overwrite_true_replaces(tmp_path):
+    p = tmp_path / "fig.figspec.json"
+    new_spec_impl(str(p), preset="aps_single")
+    out = new_spec_impl(str(p), preset="nature_double", overwrite=True)
+    assert "error" not in out
+    assert out["target"]["figure_width_mm"] == 183.0
+    assert json.loads(p.read_text())["target"]["figure_width_mm"] == 183.0
