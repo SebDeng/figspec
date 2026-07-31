@@ -31,9 +31,11 @@ Issues = "https://github.com/SebDeng/figspec/issues"
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "pypdf>=4", "matplotlib>=3.8"]
+mcp = ["fastmcp>=2"]
 
 [project.scripts]
 figspec = "figspec.cli:main"
+figspec-mcp = "figspec.mcp_server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["figspec"]
