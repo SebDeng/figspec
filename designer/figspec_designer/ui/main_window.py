@@ -185,6 +185,12 @@ class MainWindow(QMainWindow):
             self.canvas.apply_selection(panel_id)
             self._refresh_sidebar()
             return
+        if action != "swap":
+            # Any action other than "select" (handled above) or "swap"
+            # itself (which (re)arms it below) must disarm a pending swap --
+            # otherwise it stays silently armed and later fires on the
+            # app's single most common interaction, a plain panel click.
+            self._cancel_swap_pending()
         if panel_id is None:
             self.statusBar().showMessage("Select a panel first", 3000)
             return
@@ -203,6 +209,7 @@ class MainWindow(QMainWindow):
                 self._push_tree(ops.equalize_siblings(self.doc.tree, panel_id))
             elif action == "swap":
                 self._swap_pending = panel_id
+                self.canvas.apply_swap_armed(panel_id)
                 self.statusBar().showMessage(
                     "Swap: select another panel to exchange with (Esc to cancel)")
             elif action == "close":
@@ -212,6 +219,19 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(msg, 3000)
         except KeyError:
             self.statusBar().showMessage("Panel no longer exists", 3000)
+
+    def _cancel_swap_pending(self, *, notify: bool = True) -> None:
+        """Disarm swap mode if it's currently armed: clears the pending id,
+        the canvas's dashed-amber armed cue, and (by default) posts a
+        "Swap cancelled" statusbar note. A no-op when nothing is armed, so
+        it's safe to call unconditionally from every non-select/non-swap
+        do_action branch, plus undo/redo/open_json."""
+        if self._swap_pending is None:
+            return
+        self._swap_pending = None
+        self.canvas.apply_swap_armed(None)
+        if notify:
+            self.statusBar().showMessage("Swap cancelled", 3000)
 
     def _split_n(self, panel_id: str, direction: str,
                 dims: tuple[float, float, float]) -> None:
@@ -233,12 +253,14 @@ class MainWindow(QMainWindow):
     def _resolve_swap(self, panel_id: str | None) -> None:
         """Called from do_action("select", ...) while swap mode is armed.
         A different, existing panel id completes the swap; the same id
-        (or no id) cancels -- either way swap mode is cleared."""
+        (or no id -- e.g. a blank-canvas click, per spec A5) cancels --
+        either way swap mode is cleared."""
         pending = self._swap_pending
-        self._swap_pending = None
         if panel_id is None or panel_id == pending:
-            self.statusBar().showMessage("Swap cancelled", 3000)
+            self._cancel_swap_pending()
             return
+        self._swap_pending = None
+        self.canvas.apply_swap_armed(None)
         try:
             self._push_tree(ops.swap_panels(self.doc.tree, pending, panel_id))
         except (ValueError, KeyError) as e:
@@ -247,8 +269,7 @@ class MainWindow(QMainWindow):
     # ---- keyboard: swap-cancel + nudge -------------------------------
     def keyPressEvent(self, event) -> None:
         if event.key() == Qt.Key_Escape and self._swap_pending is not None:
-            self._swap_pending = None
-            self.statusBar().showMessage("Swap cancelled", 3000)
+            self._cancel_swap_pending()
             return
         if self.selected_panel_id is not None and event.modifiers() & Qt.ControlModifier:
             axis_delta = {
@@ -280,10 +301,12 @@ class MainWindow(QMainWindow):
         self._push_tree(ops.set_ratios(self.doc.tree, tuple(path), tuple(ratios)))
 
     def undo(self) -> None:
+        self._cancel_swap_pending()
         self.doc.tree = self.history.undo()
         self.refresh()
 
     def redo(self) -> None:
+        self._cancel_swap_pending()
         self.doc.tree = self.history.redo()
         self.refresh()
 
@@ -382,6 +405,10 @@ class MainWindow(QMainWindow):
             return f"cannot open: {e}"
         self.history = History(self.doc.tree)
         self.selected_panel_id = None
+        # A pending swap references panel ids from the doc we're about to
+        # replace -- silently drop it (no statusbar note; opening a new
+        # document is already its own big, obvious transition).
+        self._cancel_swap_pending(notify=False)
         self.topbar.set_values(self.doc.target.journal_preset,
                                self.doc.target.figure_width_mm,
                                self.doc.target.figure_height_mm,

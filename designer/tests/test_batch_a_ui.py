@@ -295,9 +295,46 @@ def test_swap_flow(qtbot):
     other = [p.id for p in iter_panels(win.doc.tree) if p.id != first][0]
     win.do_action("swap", first)
     win.do_action("select", other)
-    labels = win.doc.labels()
     rects = {r.panel_id: r for r in win.doc.panel_rects()}
     assert rects[first].x_mm > rects[other].x_mm  # positions exchanged
+
+
+def test_swap_armed_visual_cue(qtbot):
+    win, first = _win(qtbot)
+    win.do_action("swap", first)
+    widget = win.canvas.panel_widgets()[first]
+    assert widget.property("swapArmed") is True
+    win.do_action("select", first)  # same id -- cancels, doesn't swap
+    assert widget.property("swapArmed") is False
+
+
+def test_unrelated_action_disarms_swap_pending(qtbot):
+    win, first = _win(qtbot)
+    other = [p.id for p in iter_panels(win.doc.tree) if p.id != first][0]
+    before = {r.panel_id: r for r in win.doc.panel_rects()}
+    win.do_action("swap", first)
+    win.do_action("split_right", other)  # unrelated action -- must disarm swap
+    assert win._swap_pending is None
+    win.do_action("select", other)  # would have completed the swap if still armed
+    rects = {r.panel_id: r for r in win.doc.panel_rects()}
+    assert rects[first].x_mm == pytest.approx(before[first].x_mm)  # untouched -- no swap fired
+
+
+def test_blank_canvas_click_cancels_swap(qtbot):
+    win, first = _win(qtbot)
+    win.do_action("swap", first)
+    assert win._swap_pending == first
+    win.canvas.panel_action.emit("select", None)  # what a blank-canvas click sends
+    assert win._swap_pending is None
+    assert win.canvas.panel_widgets()[first].property("swapArmed") is False
+
+
+def test_undo_disarms_swap_pending(qtbot):
+    win, first = _win(qtbot)
+    win.do_action("swap", first)
+    assert win._swap_pending == first
+    win.undo()
+    assert win._swap_pending is None
 
 
 def test_nudge_shortcut(qtbot):

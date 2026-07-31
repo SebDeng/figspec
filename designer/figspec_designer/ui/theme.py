@@ -26,6 +26,7 @@ QWidget#page {{ background: transparent; border: none; }}
 
 PanelWidget {{ background: {PANEL_BG}; border: 1px solid {HAIRLINE}; border-radius: 4px; }}
 PanelWidget[selected="true"] {{ border: 2px solid {INK}; }}
+PanelWidget[swapArmed="true"] {{ border: 2px dashed {AMBER_BG}; }}
 QLabel#panelLetter {{ color: {LETTER}; font-size: 20px; font-weight: 600; background: transparent; border: none; }}
 
 QWidget#panelActions {{ background: {PANEL_BG}; border: 1px solid {HAIRLINE}; border-radius: 6px; }}

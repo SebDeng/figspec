@@ -19,6 +19,7 @@ class PanelWidget(QFrame):
         self.panel_id = panel_id
         self.setObjectName("panel")
         self.setProperty("selected", False)
+        self.setProperty("swapArmed", False)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(4, 4, 4, 4)
@@ -66,6 +67,10 @@ class PanelWidget(QFrame):
 
     def set_selected(self, on: bool) -> None:
         self.setProperty("selected", bool(on))
+        repolish(self)
+
+    def set_swap_armed(self, on: bool) -> None:
+        self.setProperty("swapArmed", bool(on))
         repolish(self)
 
     def set_aspect_violation(self, violated: bool) -> None:

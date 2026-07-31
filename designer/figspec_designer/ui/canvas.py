@@ -13,7 +13,11 @@ _MARGIN_PX = 24
 
 
 class Canvas(QWidget):
-    panel_action = Signal(str, str)      # (action, panel_id)
+    # panel_id is `object`, not `str` -- a str-typed Qt signal coerces a
+    # Python None argument to "" during marshaling, which would silently
+    # turn our blank-canvas-click "select nothing" (None) into a bogus
+    # empty-string panel id instead. `object` passes None through as-is.
+    panel_action = Signal(str, object)      # (action, panel_id | None)
     ratios_committed = Signal(tuple, tuple)  # (path, ratios)
 
     def __init__(self, parent: QWidget | None = None):
@@ -24,6 +28,7 @@ class Canvas(QWidget):
         self._panels: dict[str, PanelWidget] = {}
         self._splitters: dict[tuple[int, ...], GutterSplitter] = {}
         self._selected_id: str | None = None
+        self._swap_armed_id: str | None = None
         self.px_per_mm = 1.0
         self._feedback = QLabel(self)
         self._feedback.setObjectName("dragFeedback")
@@ -44,6 +49,14 @@ class Canvas(QWidget):
         self._selected_id = panel_id
         for pid, w in self._panels.items():
             w.set_selected(pid == panel_id)
+
+    def apply_swap_armed(self, panel_id: str | None) -> None:
+        """Mirrors apply_selection: visually marks the panel currently
+        armed for swap (MainWindow._swap_pending), or clears the cue when
+        panel_id is None."""
+        self._swap_armed_id = panel_id
+        for pid, w in self._panels.items():
+            w.set_swap_armed(pid == panel_id)
 
     # ---- geometry ---------------------------------------------------
     def _fit_scale(self) -> float:
@@ -83,6 +96,7 @@ class Canvas(QWidget):
         # prior selection (apply_selection() also re-sets self._selected_id,
         # which is a no-op here since it's already the current value).
         self.apply_selection(self._selected_id)
+        self.apply_swap_armed(self._swap_armed_id)
         self._feedback.raise_()
 
     def _build_node(self, node: Node, path: tuple[int, ...],
@@ -162,12 +176,17 @@ class Canvas(QWidget):
         node = ops.node_at(self._doc.tree, splitter.path)
         avail_mm = (self._axis_mm(node, splitter.path)
                     - (len(sizes_px) - 1) * self._doc.target.gutter_mm)
-        # Clamp every child to >= MIN_PANEL_MM BEFORE any snapping (and
-        # even when Alt bypasses snapping) so a drag -- free or snapped --
-        # can never commit a panel below the minimum size.
-        ratios = self._clamp_min_mm(ratios, avail_mm)
         if not alt_held:
             ratios = ops.snap_ratios(ratios, avail_mm)
+        # Clamp AFTER snapping (not before), then renormalize. snap_ratios'
+        # own 0.5mm rounding of the *other* child's remainder can itself
+        # push an already-near-floor child back under MIN_PANEL_MM even
+        # when the pre-snap ratios were clamp-clean -- e.g. avail 50.3mm,
+        # drag to [45.3, 5.0] snaps to [45.5, 4.8]. Clamping post-snap is
+        # the only ordering that actually holds the floor; it also still
+        # runs when Alt bypasses snapping, so a free drag can't produce a
+        # <5mm panel either.
+        ratios = self._clamp_min_mm(ratios, avail_mm)
         self.ratios_committed.emit(splitter.path, ratios)
 
     @staticmethod
@@ -208,3 +227,12 @@ class Canvas(QWidget):
         super().resizeEvent(event)
         if self._doc is not None:
             self._rebuild()
+
+    def mousePressEvent(self, event) -> None:
+        # Reaches here only for a click that landed on the canvas itself --
+        # i.e. blank space outside any PanelWidget/splitter (those consume
+        # the event first). Forward as "select nothing": MainWindow treats
+        # it like clicking empty space -- deselects, and (spec A5) cancels
+        # an in-progress swap.
+        self.panel_action.emit("select", None)
+        super().mousePressEvent(event)
