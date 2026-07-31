@@ -67,3 +67,13 @@ def effective_dpi(asset_px: tuple[int, int], w_mm: float, h_mm: float) -> float:
     if w_mm <= 0 or h_mm <= 0:
         raise ValueError("panel dimensions must be positive")
     return min(asset_px[0] / (w_mm / 25.4), asset_px[1] / (h_mm / 25.4))
+
+
+def format_label(label: str, style: str) -> str:
+    """Display-format an internal lowercase panel label. Identity for
+    unknown styles -- display must never crash over a bad style string."""
+    if style == "uppercase":
+        return label.upper()
+    if style == "paren_lower":
+        return f"({label})"
+    return label
