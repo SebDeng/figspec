@@ -13,7 +13,8 @@ _BTN_SPECS = [("btn_split_right", "▸", "split_right", "Split right (Cmd+D)"),
 class PanelWidget(QFrame):
     action = Signal(str, str)  # (action, panel_id)
 
-    def __init__(self, panel_id: str, label_text: str, parent: QWidget | None = None):
+    def __init__(self, panel_id: str, label_text: str, parent: QWidget | None = None,
+                *, aspect_violated: bool = False):
         super().__init__(parent)
         self.panel_id = panel_id
         self.setObjectName("panel")
@@ -23,6 +24,12 @@ class PanelWidget(QFrame):
         root.setContentsMargins(4, 4, 4, 4)
 
         bar = QHBoxLayout()
+
+        self.aspect_badge = QLabel("aspect", self)
+        self.aspect_badge.setObjectName("aspectBadge")
+        self.aspect_badge.setVisible(aspect_violated)
+        bar.addWidget(self.aspect_badge)
+
         bar.addStretch(1)
 
         # Create panelActions container
@@ -60,6 +67,9 @@ class PanelWidget(QFrame):
     def set_selected(self, on: bool) -> None:
         self.setProperty("selected", bool(on))
         repolish(self)
+
+    def set_aspect_violation(self, violated: bool) -> None:
+        self.aspect_badge.setVisible(violated)
 
     def enterEvent(self, event) -> None:
         self._actions.setVisible(True)

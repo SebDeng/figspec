@@ -123,6 +123,22 @@ def set_content_hint(root: Node, panel_id: str, text: str) -> Node:
     return out
 
 
+def set_aspect_lock(root: Node, panel_id: str, value: float | None) -> Node:
+    def rec(node: Node) -> Node:
+        if isinstance(node, PanelNode):
+            if node.id == panel_id:
+                return replace(node, aspect_lock=value)
+            return node
+        children = tuple(rec(c) for c in node.children)
+        if all(a is b for a, b in zip(children, node.children)):
+            return node
+        return SplitNode(node.orientation, node.ratios, children)
+    out = rec(root)
+    if out is root:
+        raise KeyError(panel_id)
+    return out
+
+
 def snap_ratios(ratios, avail_mm: float, step: float = 0.5) -> tuple[float, ...]:
     ratios = tuple(float(r) for r in ratios)
     sizes = [r * avail_mm for r in ratios]

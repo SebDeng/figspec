@@ -51,6 +51,10 @@ class MainWindow(QMainWindow):
         self.topbar.copy_requested.connect(self.copy_json)
         self.topbar.open_requested.connect(self._open_dialog)
         self.sidebar.content_hint_edited.connect(self._on_hint_edited)
+        self.sidebar.size_edited.connect(self._on_size_edited)
+        self.sidebar.square_requested.connect(self._on_square)
+        self.sidebar.aspect_lock_toggled.connect(self._on_aspect_lock)
+        self.sidebar.placement_copy_requested.connect(self.copy_placement_table)
 
         self._make_menus()
         self._on_settings_changed()
@@ -69,6 +73,7 @@ class MainWindow(QMainWindow):
         act(file_menu, "Open…", "Ctrl+O", self._open_dialog)
         act(file_menu, "Save JSON…", "Ctrl+S", self._save_dialog)
         act(file_menu, "Copy JSON", "Ctrl+Shift+C", self.copy_json)
+        act(file_menu, "Copy Placement Table", None, self.copy_placement_table)
         edit_menu = self.menuBar().addMenu("Edit")
         act(edit_menu, "Undo", "Ctrl+Z", self.undo)
         act(edit_menu, "Redo", "Ctrl+Shift+Z", self.redo)
@@ -99,8 +104,28 @@ class MainWindow(QMainWindow):
             self.sidebar.clear()
             return
         rect = next(r for r in self.doc.panel_rects() if r.panel_id == pid)
+        panel = panels[pid]
         self.sidebar.show_panel(pid, self.doc.labels()[pid], rect,
-                                self.doc.target.dpi, panels[pid].content_hint)
+                                self.doc.target.dpi, panel.content_hint,
+                                aspect_lock=panel.aspect_lock,
+                                w_adjustable=self._axis_adjustable(pid, "w"),
+                                h_adjustable=self._axis_adjustable(pid, "h"))
+
+    def _axis_adjustable(self, panel_id: str, axis: str) -> bool:
+        """Probe whether axis can be resized on the CURRENT tree, without
+        pushing any change -- used to enable/disable the sidebar spinboxes."""
+        rect = next((r for r in self.doc.panel_rects() if r.panel_id == panel_id), None)
+        if rect is None:
+            return False
+        size = rect.w_mm if axis == "w" else rect.h_mm
+        try:
+            ops.set_panel_size(self.doc.tree, panel_id, axis, size,
+                               self.doc.target.figure_width_mm,
+                               self.doc.target.figure_height_mm,
+                               self.doc.target.gutter_mm)
+            return True
+        except (ValueError, KeyError):
+            return False
 
     # ---- actions ----------------------------------------------------
     def do_action(self, action: str, panel_id: str | None = None) -> None:
@@ -146,6 +171,40 @@ class MainWindow(QMainWindow):
         except KeyError:
             pass
 
+    def _on_size_edited(self, panel_id: str, axis: str, size_mm: float) -> None:
+        try:
+            self._push_tree(ops.set_panel_size(
+                self.doc.tree, panel_id, axis, size_mm,
+                self.doc.target.figure_width_mm, self.doc.target.figure_height_mm,
+                self.doc.target.gutter_mm))
+        except (ValueError, KeyError) as e:
+            self.statusBar().showMessage(str(e), 3000)
+            self._refresh_sidebar()  # snap the spinbox back to the actual value
+
+    def _on_square(self, panel_id: str) -> None:
+        rect = next((r for r in self.doc.panel_rects() if r.panel_id == panel_id), None)
+        if rect is None:
+            return
+        dims = (self.doc.target.figure_width_mm, self.doc.target.figure_height_mm,
+                self.doc.target.gutter_mm)
+        try:
+            new_tree = ops.set_panel_size(self.doc.tree, panel_id, "h", rect.w_mm, *dims)
+        except (ValueError, KeyError):
+            # h isn't adjustable for this panel (e.g. it's not split along the
+            # column axis) -- fall back to matching w to h instead.
+            try:
+                new_tree = ops.set_panel_size(self.doc.tree, panel_id, "w", rect.h_mm, *dims)
+            except (ValueError, KeyError) as e:
+                self.statusBar().showMessage(f"Cannot make square: {e}", 3000)
+                return
+        self._push_tree(new_tree)
+
+    def _on_aspect_lock(self, panel_id: str, value: float | None) -> None:
+        try:
+            self._push_tree(ops.set_aspect_lock(self.doc.tree, panel_id, value))
+        except KeyError:
+            pass
+
     def _on_settings_changed(self) -> None:
         (preset, width, height, dpi, gutter,
          min_font, max_font, min_lw) = self.topbar.values()
@@ -160,6 +219,16 @@ class MainWindow(QMainWindow):
     def copy_json(self) -> None:
         QApplication.clipboard().setText(self.export_json_text())
         self.statusBar().showMessage("figspec.json copied to clipboard", 3000)
+
+    def copy_placement_table(self) -> None:
+        labels = self.doc.labels()
+        rows = ["label\tx_mm\ty_mm\tw_mm\th_mm"]
+        for rect in sorted(self.doc.panel_rects(),
+                           key=lambda r: (round(r.y_mm, 1), r.x_mm)):
+            rows.append(f"{labels[rect.panel_id]}\t{rect.x_mm:.2f}\t"
+                        f"{rect.y_mm:.2f}\t{rect.w_mm:.2f}\t{rect.h_mm:.2f}")
+        QApplication.clipboard().setText("\n".join(rows) + "\n")
+        self.statusBar().showMessage("Placement table copied", 3000)
 
     def save_json(self, path) -> None:
         Path(path).write_text(self.export_json_text())

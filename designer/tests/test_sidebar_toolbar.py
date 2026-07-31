@@ -9,7 +9,8 @@ def test_sidebar_shows_values(qtbot):
     qtbot.addWidget(sb)
     sb.show_panel("p1", "b", PanelRect("p1", 93.5, 0.0, 89.5, 57.6), 600, "hero")
     assert sb.lbl_label.text() == "b"
-    assert "89.5" in sb.lbl_mm.text() and "57.6" in sb.lbl_mm.text()
+    assert sb.spin_w.value() == pytest.approx(89.5)
+    assert sb.spin_h.value() == pytest.approx(57.6)
     assert "2114" in sb.lbl_px.text()
     assert "3.524" in sb.lbl_figsize.text()
     assert sb.hint_edit.text() == "hero"

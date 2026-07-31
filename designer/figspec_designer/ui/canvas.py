@@ -73,7 +73,8 @@ class Canvas(QWidget):
         page_h = round(t.figure_height_mm * self.px_per_mm)
         self._page.setGeometry((self.width() - page_w) // 2,
                                (self.height() - page_h) // 2, page_w, page_h)
-        content = self._build_node(self._doc.tree, (), labels)
+        rects = {r.panel_id: r for r in self._doc.panel_rects()}
+        content = self._build_node(self._doc.tree, (), labels, rects)
         content.setParent(self._page)
         content.setGeometry(0, 0, page_w, page_h)
         self._page.show()
@@ -85,9 +86,11 @@ class Canvas(QWidget):
         self._feedback.raise_()
 
     def _build_node(self, node: Node, path: tuple[int, ...],
-                    labels: dict[str, str]) -> QWidget:
+                    labels: dict[str, str], rects: dict) -> QWidget:
         if isinstance(node, PanelNode):
-            w = PanelWidget(node.id, labels.get(node.id, "?"))
+            violated = self._aspect_violated(node, rects)
+            w = PanelWidget(node.id, labels.get(node.id, "?"),
+                            aspect_violated=violated)
             w.action.connect(self.panel_action.emit)
             panel_shadow(w)
             self._panels[node.id] = w
@@ -97,13 +100,25 @@ class Canvas(QWidget):
         gutter_px = max(round(self._doc.target.gutter_mm * self.px_per_mm), 1)
         splitter.setHandleWidth(gutter_px)
         for i, child in enumerate(node.children):
-            splitter.addWidget(self._build_node(child, path + (i,), labels))
+            splitter.addWidget(self._build_node(child, path + (i,), labels, rects))
         total_px = round((self._axis_mm(node, path) -
                           (len(node.children) - 1) * self._doc.target.gutter_mm)
                          * self.px_per_mm)
         splitter.setSizes([max(round(r * total_px), 1) for r in node.ratios])
         self._splitters[path] = splitter
         return splitter
+
+    @staticmethod
+    def _aspect_violated(node: PanelNode, rects: dict) -> bool:
+        """True when node has an aspect_lock and its current rect's w/h ratio
+        deviates from that lock by more than 2%."""
+        if node.aspect_lock is None:
+            return False
+        rect = rects.get(node.id)
+        if rect is None or rect.h_mm <= 0:
+            return False
+        current = rect.w_mm / rect.h_mm
+        return abs(current - node.aspect_lock) / node.aspect_lock > 0.02
 
     def _axis_mm(self, node: Node, path: tuple[int, ...]) -> float:
         """Length in mm of this splitter's axis, derived from the flattened rects."""

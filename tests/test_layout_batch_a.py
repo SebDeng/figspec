@@ -1,8 +1,8 @@
 import pytest
 from figspec.layout.tree import PanelNode, SplitNode, from_dict, to_dict
 from figspec.layout.flatten import flatten
-from figspec.layout.ops import (MIN_PANEL_MM, equalize_siblings, set_panel_size,
-                                split_panel_n, swap_panels)
+from figspec.layout.ops import (MIN_PANEL_MM, equalize_siblings, set_aspect_lock,
+                                set_panel_size, split_panel_n, swap_panels)
 
 A, B, C = PanelNode("A"), PanelNode("B"), PanelNode("C")
 
@@ -134,3 +134,16 @@ def test_aspect_lock_roundtrip():
     d2 = to_dict(PanelNode("q"))
     assert "aspect_lock" not in d2
     assert from_dict(d2).aspect_lock is None
+
+
+def test_set_aspect_lock():
+    root = SplitNode("row", (0.5, 0.5), (A, B))
+    out = set_aspect_lock(root, "A", 1.5)
+    panel_a = next(p for p in out.children if p.id == "A")
+    assert panel_a.aspect_lock == 1.5
+    assert out.children[1] is B  # untouched sibling identity preserved
+    out2 = set_aspect_lock(out, "A", None)
+    panel_a2 = next(p for p in out2.children if p.id == "A")
+    assert panel_a2.aspect_lock is None
+    with pytest.raises(KeyError):
+        set_aspect_lock(root, "zz", 1.0)

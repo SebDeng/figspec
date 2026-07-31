@@ -1,13 +1,18 @@
-"""Selected-panel inspector: label, mm / px / figsize, content hint."""
+"""Selected-panel inspector: label, position, size, aspect, content hint."""
 from __future__ import annotations
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QGridLayout, QLabel, QLineEdit, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (QCheckBox, QDoubleSpinBox, QGridLayout, QHBoxLayout,
+                               QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget)
 from figspec_designer.model.flatten import PanelRect, derive
 from figspec_designer.ui.theme import smallcaps_font
 
 
 class Sidebar(QWidget):
     content_hint_edited = Signal(str, str)  # (panel_id, text)
+    size_edited = Signal(str, str, float)  # (panel_id, axis, mm)
+    square_requested = Signal(str)  # (panel_id)
+    aspect_lock_toggled = Signal(str, object)  # (panel_id, float|None)
+    placement_copy_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -15,6 +20,8 @@ class Sidebar(QWidget):
         self.setAttribute(Qt.WA_StyledBackground, True)
         self._panel_id: str | None = None
         self._last_hint: str | None = None
+        self._shown_w: float | None = None
+        self._shown_h: float | None = None
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(16, 16, 16, 16)
@@ -31,17 +38,40 @@ class Sidebar(QWidget):
         grid.setSpacing(8)
 
         self.lbl_label = QLabel("—")
-        self.lbl_mm = QLabel("—")
+        self.lbl_xy = QLabel("—")
+        self.lbl_aspect = QLabel("—")
         self.lbl_px = QLabel("—")
         self.lbl_figsize = QLabel("—")
 
-        for lbl in (self.lbl_label, self.lbl_mm, self.lbl_px, self.lbl_figsize):
+        for lbl in (self.lbl_label, self.lbl_xy, self.lbl_aspect,
+                   self.lbl_px, self.lbl_figsize):
             lbl.setObjectName("fieldValue")
             lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
+        self.spin_w = QDoubleSpinBox()
+        self.spin_h = QDoubleSpinBox()
+        for spin in (self.spin_w, self.spin_h):
+            spin.setObjectName("fieldValue")
+            spin.setDecimals(1)
+            spin.setRange(5.0, 600.0)
+            spin.setSuffix(" mm")
+            spin.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
+        size_row = QWidget()
+        size_row_layout = QHBoxLayout(size_row)
+        size_row_layout.setContentsMargins(0, 0, 0, 0)
+        size_row_layout.setSpacing(4)
+        size_row_layout.addWidget(self.spin_w)
+        times_lbl = QLabel("×")
+        times_lbl.setObjectName("fieldLabel")
+        size_row_layout.addWidget(times_lbl)
+        size_row_layout.addWidget(self.spin_h)
+
         fields = [
             ("Label", self.lbl_label),
-            ("Size (mm)", self.lbl_mm),
+            ("Position", self.lbl_xy),
+            ("Size (mm)", size_row),
+            ("Aspect", self.lbl_aspect),
             ("Pixels", self.lbl_px),
             ("figsize (in)", self.lbl_figsize),
         ]
@@ -60,16 +90,62 @@ class Sidebar(QWidget):
         self.hint_edit.setPlaceholderText("content hint (e.g. STEM image + FFT inset)")
         outer.addWidget(self.hint_edit)
 
+        # Aspect lock + geometry tools
+        self.chk_aspect_lock = QCheckBox("Lock aspect ratio")
+        self.chk_aspect_lock.setObjectName("aspectLockCheck")
+        outer.addWidget(self.chk_aspect_lock)
+
+        self.btn_square = QPushButton("Make Square")
+        self.btn_square.setObjectName("squareButton")
+        outer.addWidget(self.btn_square)
+
+        self.btn_copy_placement = QPushButton("Copy Placement Table")
+        self.btn_copy_placement.setObjectName("copyPlacementButton")
+        outer.addWidget(self.btn_copy_placement)
+
         # Stretch
         outer.addStretch(1)
 
         self.hint_edit.editingFinished.connect(self._emit_hint)
         self.hint_edit.setEnabled(False)
+        self.spin_w.editingFinished.connect(lambda: self._emit_size("w"))
+        self.spin_h.editingFinished.connect(lambda: self._emit_size("h"))
+        self.spin_w.setEnabled(False)
+        self.spin_h.setEnabled(False)
+        self.btn_square.clicked.connect(self._emit_square)
+        self.btn_square.setEnabled(False)
+        self.chk_aspect_lock.toggled.connect(self._emit_aspect_lock)
+        self.chk_aspect_lock.setEnabled(False)
+        self.btn_copy_placement.clicked.connect(self.placement_copy_requested.emit)
 
     def _emit_hint(self) -> None:
         if self._panel_id is not None:
             self.content_hint_edited.emit(self._panel_id, self.hint_edit.text())
             self._last_hint = self.hint_edit.text()
+
+    def _emit_size(self, axis: str) -> None:
+        if self._panel_id is None:
+            return
+        spin = self.spin_w if axis == "w" else self.spin_h
+        shown = self._shown_w if axis == "w" else self._shown_h
+        value = spin.value()
+        if shown is not None and abs(value - shown) < 1e-9:
+            return  # unchanged vs what was shown -- no spurious emit/history push
+        self.size_edited.emit(self._panel_id, axis, value)
+        if axis == "w":
+            self._shown_w = value
+        else:
+            self._shown_h = value
+
+    def _emit_square(self) -> None:
+        if self._panel_id is not None:
+            self.square_requested.emit(self._panel_id)
+
+    def _emit_aspect_lock(self, checked: bool) -> None:
+        if self._panel_id is None:
+            return
+        value = (self.spin_w.value() / self.spin_h.value()) if checked else None
+        self.aspect_lock_toggled.emit(self._panel_id, value)
 
     def flush_pending(self) -> None:
         """Emit any typed-but-unconfirmed hint edit (no editingFinished yet).
@@ -85,13 +161,34 @@ class Sidebar(QWidget):
             self._last_hint = text
 
     def show_panel(self, panel_id: str, label: str, rect: PanelRect,
-                   dpi: int, content_hint: str) -> None:
+                   dpi: int, content_hint: str, aspect_lock: float | None = None,
+                   w_adjustable: bool = True, h_adjustable: bool = True) -> None:
         self._panel_id = panel_id
         w_px, h_px, figsize = derive(rect, dpi)
         self.lbl_label.setText(label)
-        self.lbl_mm.setText(f"{rect.w_mm:.1f} × {rect.h_mm:.1f}")
+        self.lbl_xy.setText(f"{rect.x_mm:.1f}, {rect.y_mm:.1f} mm")
+        ratio = rect.w_mm / rect.h_mm if rect.h_mm else 0.0
+        self.lbl_aspect.setText(f"{ratio:.3f}:1")
         self.lbl_px.setText(f"{w_px} × {h_px} @ {dpi} dpi")
         self.lbl_figsize.setText(f"({figsize[0]:.3f}, {figsize[1]:.3f})")
+
+        self.spin_w.blockSignals(True)
+        self.spin_h.blockSignals(True)
+        self.spin_w.setValue(rect.w_mm)
+        self.spin_h.setValue(rect.h_mm)
+        self.spin_w.setEnabled(w_adjustable)
+        self.spin_h.setEnabled(h_adjustable)
+        self.spin_w.blockSignals(False)
+        self.spin_h.blockSignals(False)
+        self._shown_w = rect.w_mm
+        self._shown_h = rect.h_mm
+
+        self.chk_aspect_lock.blockSignals(True)
+        self.chk_aspect_lock.setChecked(aspect_lock is not None)
+        self.chk_aspect_lock.blockSignals(False)
+        self.chk_aspect_lock.setEnabled(True)
+        self.btn_square.setEnabled(True)
+
         self.hint_edit.setEnabled(True)
         self.hint_edit.setText(content_hint)
         self._last_hint = content_hint
@@ -99,7 +196,23 @@ class Sidebar(QWidget):
     def clear(self) -> None:
         self._panel_id = None
         self._last_hint = None
-        for lbl in (self.lbl_label, self.lbl_mm, self.lbl_px, self.lbl_figsize):
+        self._shown_w = None
+        self._shown_h = None
+        for lbl in (self.lbl_label, self.lbl_xy, self.lbl_aspect,
+                   self.lbl_px, self.lbl_figsize):
             lbl.setText("—")
+        self.spin_w.blockSignals(True)
+        self.spin_h.blockSignals(True)
+        self.spin_w.setValue(self.spin_w.minimum())
+        self.spin_h.setValue(self.spin_h.minimum())
+        self.spin_w.setEnabled(False)
+        self.spin_h.setEnabled(False)
+        self.spin_w.blockSignals(False)
+        self.spin_h.blockSignals(False)
+        self.chk_aspect_lock.blockSignals(True)
+        self.chk_aspect_lock.setChecked(False)
+        self.chk_aspect_lock.blockSignals(False)
+        self.chk_aspect_lock.setEnabled(False)
+        self.btn_square.setEnabled(False)
         self.hint_edit.clear()
         self.hint_edit.setEnabled(False)
