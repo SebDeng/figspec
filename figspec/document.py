@@ -90,6 +90,19 @@ def relativize_assets(tree: Node, base_dir) -> Node:
     return out
 
 
+def absolutize_assets(tree: Node, base_dir) -> Node:
+    """Return a tree whose relative asset paths are rewritten to absolute,
+    resolved against base_dir (mirrors relativize_assets). A missing file
+    still absolutizes -- the caller needs the right path to show the
+    missing-state against, not a silent skip."""
+    out = tree
+    for p in iter_panels(tree):
+        if p.asset and not Path(p.asset).is_absolute():
+            abs_path = str((Path(base_dir) / p.asset).resolve())
+            out = ops.set_asset(out, p.id, abs_path, p.asset_px)
+    return out
+
+
 def resolve_asset(asset: str, base_dir) -> Path | None:
     """Absolute or base_dir-relative asset path -> existing Path, else None."""
     p = Path(asset)

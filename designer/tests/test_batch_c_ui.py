@@ -1,4 +1,6 @@
 """Batch C UI tests: snippet, assets, DPI light, preview export, templates."""
+import json
+
 from PySide6.QtWidgets import QApplication
 
 from figspec.layout.tree import iter_panels
@@ -96,6 +98,46 @@ def test_open_json_resolves_relative_assets_before_render(qtbot, tmp_path):
     widget = win2.canvas.panel_widgets()[pid2]
     assert widget.property("assetMissing") is False
     assert widget._thumb is not None
+
+
+def test_open_save_as_different_dir_keeps_asset_linked(qtbot, tmp_path, monkeypatch):
+    # Regression: open_json() kept the sidecar's dir-A-relative asset path
+    # in the in-memory tree; relativize_assets() only rewrites ABSOLUTE
+    # paths, so Save As into dir B wrote that same (now-dangling) relative
+    # path -- a false "missing asset" for a workspace the user never
+    # touched. In-memory must be absolute right after open (also fixes
+    # Minor 3: Copy JSON then carries an absolute path too).
+    from pathlib import Path
+    from figspec.document import resolve_asset
+
+    dir_a = tmp_path / "a"
+    dir_a.mkdir()
+    png = _make_png(dir_a)
+    win = MainWindow()
+    qtbot.addWidget(win)
+    pid = next(iter_panels(win.doc.tree)).id
+    win._on_asset_dropped(pid, str(png))
+    json_path = dir_a / "figspec.json"
+    win.save_json(json_path)  # asset written relative to dir A
+
+    win2 = MainWindow()
+    qtbot.addWidget(win2)
+    assert win2.open_json(str(json_path)) is None
+    exported = json.loads(win2.export_json_text())
+    assert Path(exported["panels"][0]["asset"]).is_absolute()  # Minor 3
+
+    dir_b = tmp_path / "b"
+    dir_b.mkdir()
+    monkeypatch.setattr(win2, "_ask_save_path", lambda: dir_b / "figspec.json")
+    assert win2.save_as() is True
+
+    saved = json.loads((dir_b / "figspec.json").read_text())
+    saved_asset = saved["panels"][0]["asset"]
+    assert resolve_asset(saved_asset, dir_b) is not None
+
+    pid2 = next(iter_panels(win2.doc.tree)).id
+    widget = win2.canvas.panel_widgets()[pid2]
+    assert widget.property("assetMissing") is False
 
 
 def test_sidebar_asset_block_and_dpi_light(qtbot, tmp_path):

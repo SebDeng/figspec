@@ -3,7 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from figspec.document import DesignerDocument, relativize_assets, resolve_asset
+from figspec.document import (DesignerDocument, absolutize_assets,
+                              relativize_assets, resolve_asset)
 from figspec.layout import ops
 from figspec.layout.flatten import effective_dpi
 from figspec.layout.tree import PanelNode, SplitNode, from_dict, iter_panels, to_dict
@@ -113,6 +114,28 @@ def test_relativize_and_resolve(tmp_path):
     assert resolve_asset("figs/missing.png", tmp_path) is None
     assert resolve_asset("figs/a.png", None) is None
     assert resolve_asset(str(img), None) == img  # absolute needs no base
+
+
+def test_absolutize_assets(tmp_path):
+    img = tmp_path / "figs" / "a.png"
+    img.parent.mkdir()
+    img.write_bytes(b"fake")
+    tree = ops.set_asset(_two_panel_tree(), "aaaa1111", "figs/a.png", (10, 10))
+    absolute = absolutize_assets(tree, tmp_path)
+    panel = next(p for p in iter_panels(absolute) if p.id == "aaaa1111")
+    assert panel.asset == str(img.resolve())
+    # already-absolute path passes through unchanged
+    absolute2 = absolutize_assets(absolute, tmp_path)
+    assert next(p for p in iter_panels(absolute2)
+               if p.id == "aaaa1111").asset == str(img.resolve())
+    # missing file still absolutizes -- the missing-state must be shown
+    # against the right path, not silently skipped
+    tree_missing = ops.set_asset(_two_panel_tree(), "aaaa1111",
+                                 "figs/missing.png", (10, 10))
+    absolutized_missing = absolutize_assets(tree_missing, tmp_path)
+    missing_panel = next(p for p in iter_panels(absolutized_missing)
+                         if p.id == "aaaa1111")
+    assert missing_panel.asset == str((tmp_path / "figs/missing.png").resolve())
 
 
 def test_to_json_relativizes_only_with_base_dir(tmp_path):

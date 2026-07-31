@@ -8,6 +8,7 @@ from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (QDialog, QFileDialog, QHBoxLayout, QInputDialog,
                                QMainWindow, QMessageBox, QApplication,
                                QVBoxLayout, QWidget)
+from figspec.document import absolutize_assets
 from figspec.snippet import generate_snippet
 from figspec.spec import Target
 from figspec.templates import TEMPLATES
@@ -489,6 +490,12 @@ class MainWindow(QMainWindow):
             # string, a panel node missing "id", non-iterable "ratios").
             # None of those should ever crash the packaged app.
             return f"cannot open: {e}"
+        # In-memory tree is absolute-or-bust (relativize only happens at
+        # write time) -- open_json's sidecar assets may be dir-relative, so
+        # absolutize before anything (undo history, first render) sees them.
+        # Otherwise a later Save As into a different directory would write
+        # that same now-dangling relative path unchanged.
+        self.doc.tree = absolutize_assets(self.doc.tree, Path(path).parent)
         self.history = History(self.doc.tree)
         self.selected_panel_id = None
         # A pending swap references panel ids from the doc we're about to
