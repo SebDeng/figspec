@@ -141,9 +141,12 @@ def split_panel_n(root: Node, panel_id: str, direction: str, n: int, *,
                   gutter_mm: float | None = None) -> Node:
     """Split panel_id into n children along direction (inline on a matching-
     orientation parent, wrapped otherwise); when page_w_mm, page_h_mm and
-    gutter_mm are all given, the resulting children's real on-page rects are
-    checked against MIN_PANEL_MM (ValueError if any is too small), otherwise the
-    split is structure-only (ratio-space) with no size guard.
+    gutter_mm are all given, compares every panel's real rect before vs. after
+    the split and raises ValueError for any panel -- one of the split's own
+    children, or an unrelated sibling shrunk by the split's added gutters --
+    that the op itself pushed below MIN_PANEL_MM (panels already sub-MIN_PANEL_MM
+    beforehand are left alone), otherwise the split is structure-only
+    (ratio-space) with no size guard.
     """
     if not 2 <= n <= 8:
         raise ValueError(f"n must be between 2 and 8, got {n}")
@@ -178,18 +181,30 @@ def split_panel_n(root: Node, panel_id: str, direction: str, n: int, *,
             return node
         return SplitNode(node.orientation, tuple(ratios), tuple(children))
 
+    guard_dims = (page_w_mm is not None and page_h_mm is not None
+                  and gutter_mm is not None)
+    old_rects = ({r.panel_id: r for r in flatten(root, page_w_mm, page_h_mm, gutter_mm)}
+                if guard_dims else None)
+
     out = rec(root)
     if out is root:
         raise KeyError(panel_id)
 
-    if page_w_mm is not None and page_h_mm is not None and gutter_mm is not None:
-        rects = {r.panel_id: r for r in flatten(out, page_w_mm, page_h_mm, gutter_mm)}
-        for pid in (panel_id, *new_ids):
-            size = rects[pid].w_mm if orient == "row" else rects[pid].h_mm
-            if size < MIN_PANEL_MM - 1e-9:
-                raise ValueError(
-                    f"splitting into {n} would shrink a panel below "
-                    f"{MIN_PANEL_MM:g} mm")
+    if old_rects is not None:
+        produced = {panel_id, *new_ids}
+        new_rects = {r.panel_id: r for r in flatten(out, page_w_mm, page_h_mm, gutter_mm)}
+        for pid, rect in new_rects.items():
+            for dim in ("w_mm", "h_mm"):
+                new_val = getattr(rect, dim)
+                if new_val >= MIN_PANEL_MM - 1e-9:
+                    continue
+                old_rect = old_rects.get(pid)
+                was_fine_before = (old_rect is not None
+                                   and getattr(old_rect, dim) >= MIN_PANEL_MM - 1e-9)
+                if pid in produced or was_fine_before:
+                    raise ValueError(
+                        f"splitting into {n} would shrink a panel below "
+                        f"{MIN_PANEL_MM:g} mm")
 
     return out
 

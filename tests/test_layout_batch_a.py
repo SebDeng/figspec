@@ -45,6 +45,35 @@ def test_split_n_min_size_guard():
     assert len(out.children) == 9
 
 
+def test_split_n_dims_guard_catches_gutter_shrunk_sibling():
+    # Reviewer repro: splitting C adds a gutter to the row, which alone (with
+    # C's ratio unchanged) shrinks its sibling D from 5.2mm to 4.8mm -- below
+    # MIN_PANEL_MM -- even though the guard only directly touches C's children.
+    C2, D = PanelNode("C"), PanelNode("D")
+    root = SplitNode("row", (0.9, 0.1), (C2, D))
+    r = _rects(root, w=56.0, h=100.0, g=4.0)
+    assert r["D"].w_mm == pytest.approx(5.2)  # fine before the op
+    with pytest.raises(ValueError):
+        split_panel_n(root, "C", "right", 2,
+                      page_w_mm=56.0, page_h_mm=100.0, gutter_mm=4.0)
+
+
+def test_split_n_dims_guard_ignores_preexisting_violation():
+    # E is already ~3.84mm tall (root ratio 0.04 on a 96mm avail column) before
+    # the op ever runs; the op only touches F, inside the unrelated row branch
+    # alongside G. The op must not be blamed for a violation it didn't cause.
+    F, G, E = PanelNode("F"), PanelNode("G"), PanelNode("E")
+    top_row = SplitNode("row", (0.5, 0.5), (F, G))
+    root = SplitNode("column", (0.96, 0.04), (top_row, E))
+    before = _rects(root, w=100.0, h=100.0, g=4.0)
+    assert before["E"].h_mm == pytest.approx(3.84)
+    out = split_panel_n(root, "F", "right", 2,
+                        page_w_mm=100.0, page_h_mm=100.0, gutter_mm=4.0)
+    r = _rects(out, w=100.0, h=100.0, g=4.0)
+    assert r["E"].h_mm == pytest.approx(3.84)  # untouched, still sub-5mm, no error
+    assert r["F"].w_mm == pytest.approx(23.0)
+
+
 def test_equalize_siblings():
     root = SplitNode("row", (0.7, 0.2, 0.1), (A, B, C))
     out = equalize_siblings(root, "B")
