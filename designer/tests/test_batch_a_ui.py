@@ -1,7 +1,19 @@
 import pytest
+from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QApplication
 from figspec.layout.tree import iter_panels
 from figspec_designer.ui.main_window import MainWindow
+
+
+@pytest.fixture(autouse=True)
+def _isolated_settings(tmp_path, monkeypatch):
+    """Point MainWindow._settings() at a throwaway ini file so tests never
+    read/write the user's real "figspec"/"designer" QSettings (recent files,
+    last_file). Must run BEFORE any MainWindow is constructed in a test."""
+    ini_path = tmp_path / "s.ini"
+    monkeypatch.setattr(
+        MainWindow, "_settings",
+        lambda self: QSettings(str(ini_path), QSettings.IniFormat))
 
 
 def _win(qtbot):
@@ -106,3 +118,108 @@ def test_aspect_badge_hidden_when_within_tolerance(qtbot):
     win.sidebar.chk_aspect_lock.setChecked(True)
     widget = win.canvas.panel_widgets()[first]
     assert not widget.aspect_badge.isVisibleTo(widget)
+
+
+# ---- Task 3: file lifecycle -------------------------------------------------
+
+def test_dirty_flag_and_title(qtbot, tmp_path):
+    win, first = _win(qtbot)
+    assert win.dirty is True  # split marked dirty
+    p = tmp_path / "f.figspec.json"
+    win.save_json(p)  # low-level write does NOT manage state
+    win.current_path = p
+    win.save()
+    assert win.dirty is False
+    assert "•" not in win.windowTitle()
+    win.do_action("split_down", first)
+    assert win.dirty is True and "•" in win.windowTitle()
+
+
+def test_save_silent_with_path(qtbot, tmp_path):
+    win, _ = _win(qtbot)
+    p = tmp_path / "f.figspec.json"
+    win.current_path = p
+    assert win.save() is True
+    assert p.exists()
+
+
+def test_recent_files_tracked(qtbot, tmp_path):
+    win, _ = _win(qtbot)
+    p = tmp_path / "f.figspec.json"
+    win.current_path = p
+    win.save()
+    assert str(p) in win.recent_files()
+
+
+def test_open_marks_clean_and_recent(qtbot, tmp_path):
+    win, _ = _win(qtbot)
+    p = tmp_path / "f.figspec.json"
+    win.current_path = p
+    win.save()
+    win2 = MainWindow()
+    qtbot.addWidget(win2)
+    assert win2.open_json(p) is None
+    assert win2.dirty is False and win2.current_path == p
+
+
+# ---- Task 3 supplementary: close guard + recents (Global Constraints,
+# not covered by the brief's literal Step-1 block) --------------------------
+
+def test_confirm_discard_clean_returns_true_without_dialog(qtbot):
+    win, _ = _win(qtbot)
+    win.dirty = False
+    assert win.confirm_discard() is True  # no QMessageBox needed when clean
+
+
+class _FakeCloseEvent:
+    def __init__(self):
+        self.accepted = None
+
+    def accept(self):
+        self.accepted = True
+
+    def ignore(self):
+        self.accepted = False
+
+
+def test_close_event_cancel_ignores(qtbot, monkeypatch):
+    win, _ = _win(qtbot)
+    assert win.dirty is True
+    monkeypatch.setattr(win, "confirm_discard", lambda: False)  # user hit Cancel
+    event = _FakeCloseEvent()
+    win.closeEvent(event)
+    assert event.accepted is False
+
+
+def test_close_event_discard_or_save_accepts(qtbot, monkeypatch):
+    win, _ = _win(qtbot)
+    monkeypatch.setattr(win, "confirm_discard", lambda: True)  # Save or Discard
+    event = _FakeCloseEvent()
+    win.closeEvent(event)
+    assert event.accepted is True
+
+
+def test_recent_files_dedup_mru_order_and_max_five(qtbot, tmp_path):
+    win, _ = _win(qtbot)
+    paths = [tmp_path / f"f{i}.json" for i in range(6)]
+    for p in paths:
+        win.current_path = p
+        win.save()
+    # max 5, most-recent first
+    assert win.recent_files() == [str(p) for p in reversed(paths[1:])]
+    # re-saving an already-recent path moves it to front without duplicating
+    win.current_path = paths[3]
+    win.save()
+    assert win.recent_files()[0] == str(paths[3])
+    assert win.recent_files().count(str(paths[3])) == 1
+    assert len(win.recent_files()) == 5
+
+
+def test_recent_menu_clear_empties_recent_files(qtbot, tmp_path):
+    win, _ = _win(qtbot)
+    p = tmp_path / "f.figspec.json"
+    win.current_path = p
+    win.save()
+    assert win.recent_files() == [str(p)]
+    win._clear_recent()
+    assert win.recent_files() == []

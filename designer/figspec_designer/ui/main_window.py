@@ -2,7 +2,7 @@
 from __future__ import annotations
 import json
 from pathlib import Path
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QSettings
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (QFileDialog, QHBoxLayout, QMainWindow,
                                QMessageBox, QApplication, QVBoxLayout, QWidget)
@@ -26,6 +26,8 @@ class MainWindow(QMainWindow):
         self.doc = DesignerDocument.default()
         self.history = History(self.doc.tree)
         self.selected_panel_id: str | None = None
+        self.current_path: Path | None = None
+        self.dirty: bool = False
 
         self.topbar = TopBar()
         self.canvas = Canvas()
@@ -47,7 +49,7 @@ class MainWindow(QMainWindow):
         self.canvas.panel_action.connect(lambda a, pid: self.do_action(a, pid))
         self.canvas.ratios_committed.connect(self.apply_ratios)
         self.topbar.settings_changed.connect(self._on_settings_changed)
-        self.topbar.save_requested.connect(self._save_dialog)
+        self.topbar.save_requested.connect(self.save)
         self.topbar.copy_requested.connect(self.copy_json)
         self.topbar.open_requested.connect(self._open_dialog)
         self.sidebar.content_hint_edited.connect(self._on_hint_edited)
@@ -71,7 +73,10 @@ class MainWindow(QMainWindow):
 
         file_menu = self.menuBar().addMenu("File")
         act(file_menu, "Open…", "Ctrl+O", self._open_dialog)
-        act(file_menu, "Save JSON…", "Ctrl+S", self._save_dialog)
+        self.recent_menu = file_menu.addMenu("Open Recent")
+        self.recent_menu.aboutToShow.connect(self._rebuild_recent_menu)
+        act(file_menu, "Save JSON…", "Ctrl+S", self.save)
+        act(file_menu, "Save As…", "Ctrl+Shift+S", self.save_as)
         act(file_menu, "Copy JSON", "Ctrl+Shift+C", self.copy_json)
         act(file_menu, "Copy Placement Table", None, self.copy_placement_table)
         edit_menu = self.menuBar().addMenu("Edit")
@@ -90,6 +95,26 @@ class MainWindow(QMainWindow):
         self.doc.tree = new_tree
         self.history.push(new_tree)
         self.refresh()
+        self._mark_dirty()
+
+    def _settings(self) -> QSettings:
+        """QSettings accessor -- factored to a single method so tests can
+        monkeypatch it to an isolated ini-backed QSettings BEFORE
+        constructing a MainWindow, keeping recent-files/last-file state out
+        of the real user preferences during test runs."""
+        return QSettings("figspec", "designer")
+
+    def _mark_dirty(self) -> None:
+        self.dirty = True
+        self._refresh_title()
+
+    def _refresh_title(self) -> None:
+        # Path(...) defensively handles a plain str assigned to
+        # current_path (the field is typed Path | None, but nothing
+        # enforces that at the attribute-assignment level).
+        name = Path(self.current_path).name if self.current_path else "Untitled"
+        dot = " •" if self.dirty else ""
+        self.setWindowTitle(f"{name}{dot} — FigSpec Designer")
 
     def refresh(self) -> None:
         self.canvas.set_document(self.doc)
@@ -211,6 +236,7 @@ class MainWindow(QMainWindow):
         self.doc.target = Target(preset, width, height, dpi, gutter)
         self.doc.constraints = Constraints(min_font, max_font, min_lw)
         self.refresh()
+        self._mark_dirty()
 
     # ---- export / open ----------------------------------------------
     def export_json_text(self) -> str:
@@ -259,13 +285,113 @@ class MainWindow(QMainWindow):
                                self.doc.constraints.max_font_pt,
                                self.doc.constraints.min_linewidth_pt)
         self.refresh()
+        self.current_path = Path(path)
+        self.dirty = False
+        self._add_recent(self.current_path)
+        self._refresh_title()
         return None
 
-    def _save_dialog(self) -> None:
+    # ---- save / recents / close guard --------------------------------
+    def save(self) -> bool:
+        """⌘S: silent write if a current_path is already known, otherwise
+        falls through to the Save As dialog. Returns True on a completed
+        write, False if the user cancelled a Save As prompt."""
+        if self.current_path is not None:
+            self.save_json(self.current_path)
+            self.dirty = False
+            self._refresh_title()
+            self._add_recent(self.current_path)
+            return True
+        return self.save_as()
+
+    def save_as(self) -> bool:
+        """⇧⌘S: always prompts for a destination path."""
+        path = self._ask_save_path()
+        if path is None:
+            return False
+        self.current_path = path
+        self.save_json(self.current_path)
+        self.dirty = False
+        self._refresh_title()
+        self._add_recent(self.current_path)
+        return True
+
+    def _ask_save_path(self) -> Path | None:
+        """Factored out so tests can monkeypatch it to bypass the modal
+        QFileDialog (which returns "" and would make save()/save_as()
+        return False when no dialog is available)."""
         path, _ = QFileDialog.getSaveFileName(self, "Save figspec.json", "figspec.json",
                                               "figspec JSON (*.json)")
-        if path:
-            self.save_json(path)
+        return Path(path) if path else None
+
+    def recent_files(self) -> list[str]:
+        raw = self._settings().value("recent_files", [])
+        if not raw:
+            return []
+        if isinstance(raw, str):
+            # QSettings collapses a single-element list to a bare string
+            # under some backends/formats -- normalize back to a list.
+            return [raw]
+        return list(raw)
+
+    def _add_recent(self, path) -> None:
+        entry = str(path)
+        recents = [p for p in self.recent_files() if p != entry]
+        recents.insert(0, entry)
+        recents = recents[:5]
+        settings = self._settings()
+        settings.setValue("recent_files", recents)
+        settings.setValue("last_file", entry)
+
+    def _rebuild_recent_menu(self) -> None:
+        menu = self.recent_menu
+        menu.clear()
+        recents = self.recent_files()
+        if not recents:
+            empty = QAction("(No Recent Files)", menu)
+            empty.setEnabled(False)
+            menu.addAction(empty)
+        else:
+            for path in recents:
+                action = QAction(path, menu)
+                action.triggered.connect(
+                    lambda checked=False, p=path: self._open_recent(p))
+                menu.addAction(action)
+        menu.addSeparator()
+        menu.addAction("Clear Menu", self._clear_recent)
+
+    def _open_recent(self, path: str) -> None:
+        err = self.open_json(path)
+        if err and self.isVisible():
+            QMessageBox.warning(self, "Cannot open", err)
+
+    def _clear_recent(self) -> None:
+        self._settings().remove("recent_files")
+
+    def confirm_discard(self) -> bool:
+        """True if it's fine to proceed with discarding unsaved changes
+        (window is clean, or the user chose Save/Discard); False if the
+        user cancelled. Factored to its own method -- rather than inlined
+        in closeEvent -- so tests can monkeypatch it to bypass the modal
+        QMessageBox entirely."""
+        if not self.dirty:
+            return True
+        box = QMessageBox(self)
+        box.setWindowTitle("Unsaved Changes")
+        box.setText("This document has unsaved changes. Save before closing?")
+        box.setStandardButtons(
+            QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel)
+        box.setDefaultButton(QMessageBox.Save)
+        choice = box.exec()
+        if choice == QMessageBox.Save:
+            return self.save()
+        return choice == QMessageBox.Discard
+
+    def closeEvent(self, event) -> None:
+        if self.confirm_discard():
+            event.accept()
+        else:
+            event.ignore()
 
     def _open_dialog(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Open figspec.json", "",
