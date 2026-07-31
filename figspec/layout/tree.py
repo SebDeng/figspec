@@ -13,6 +13,7 @@ class PanelNode:
     asset: str | None = None
     asset_px: tuple[int, int] | None = None
     asset_dpi: float | None = None  # declared source resolution; None = assumed
+    stand_in: str | None = None  # archetype key, "none", or None = auto-infer
 
 
 @dataclass(frozen=True)
@@ -53,6 +54,8 @@ def to_dict(node: Node) -> dict:
             d["asset_px"] = list(node.asset_px)
         if node.asset_dpi is not None:
             d["asset_dpi"] = node.asset_dpi
+        if node.stand_in is not None:
+            d["stand_in"] = node.stand_in
         return d
     return {
         "type": "split",
@@ -71,7 +74,8 @@ def from_dict(d: dict) -> Node:
                          aspect_lock=d.get("aspect_lock"),
                          asset=d.get("asset"),
                          asset_px=tuple(int(v) for v in raw_px) if raw_px else None,
-                         asset_dpi=float(raw_dpi) if raw_dpi is not None else None)
+                         asset_dpi=float(raw_dpi) if raw_dpi is not None else None,
+                         stand_in=d.get("stand_in"))
     if kind == "split":
         return SplitNode(
             d["orientation"],

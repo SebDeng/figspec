@@ -52,3 +52,24 @@ def test_roles_nature_and_science():
     science = standins.roles(Constraints(min_font_pt=5.0, max_font_pt=10.0,
                                          min_linewidth_pt=0.5))
     assert science["data_stroke_pt"] == 1.0  # 3× capped at 1 pt
+
+
+def test_stand_in_sidecar_roundtrip():
+    from figspec.layout.tree import PanelNode, from_dict, to_dict
+    node = PanelNode(id="p1", stand_in="heatmap")
+    d = to_dict(node)
+    assert d["stand_in"] == "heatmap"
+    assert from_dict(d).stand_in == "heatmap"
+    bare = to_dict(PanelNode(id="p2"))
+    assert "stand_in" not in bare
+    assert from_dict(bare).stand_in is None
+
+
+def test_set_stand_in_op():
+    from figspec.layout.ops import set_stand_in
+    from figspec.layout.tree import PanelNode, iter_panels
+    root = PanelNode(id="p1")
+    assert next(iter_panels(set_stand_in(root, "p1", "bar"))).stand_in == "bar"
+    assert next(iter_panels(set_stand_in(root, "p1", None))).stand_in is None
+    with pytest.raises(KeyError):
+        set_stand_in(root, "nope", "bar")

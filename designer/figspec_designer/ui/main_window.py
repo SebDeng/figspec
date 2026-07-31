@@ -88,6 +88,7 @@ class MainWindow(QMainWindow):
         self.sidebar.card_copy_requested.connect(self.copy_authoring_card)
         self.sidebar.asset_remove_requested.connect(self._on_asset_removed)
         self.sidebar.asset_dpi_edited.connect(self._on_asset_dpi_edited)
+        self.sidebar.standin_changed.connect(self._on_standin_changed)
 
         self.lint_dock = LintDock(self)
         self.addDockWidget(Qt.RightDockWidgetArea, self.lint_dock)
@@ -273,6 +274,12 @@ class MainWindow(QMainWindow):
         except (ValueError, KeyError):
             self._refresh_sidebar()  # snap the field back to the tree's value
 
+    def _on_standin_changed(self, panel_id: str, value: str | None) -> None:
+        try:
+            self._push_tree(ops.set_stand_in(self.doc.tree, panel_id, value))
+        except KeyError:
+            pass
+
     def _refresh_sidebar(self) -> None:
         pid = self.selected_panel_id
         panels = {p.id: p for p in iter_panels(self.doc.tree)}
@@ -310,7 +317,8 @@ class MainWindow(QMainWindow):
                                 asset_name=asset_name, asset_px=asset_px,
                                 eff_dpi=eff, dpi_level=dpi_level,
                                 asset_missing=missing,
-                                asset_dpi=panel.asset_dpi, scale_k=scale_k)
+                                asset_dpi=panel.asset_dpi, scale_k=scale_k,
+                                stand_in=panel.stand_in)
         self.specimen_strip.set_panel_scale(scale_k)
 
     def _axis_adjustable(self, panel_id: str, axis: str) -> bool:

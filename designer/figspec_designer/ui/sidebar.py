@@ -2,8 +2,9 @@
 from __future__ import annotations
 import math
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QCheckBox, QDoubleSpinBox, QGridLayout, QHBoxLayout,
-                               QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox,
+                               QGridLayout, QHBoxLayout, QLabel, QLineEdit,
+                               QPushButton, QVBoxLayout, QWidget)
 from figspec_designer.model.flatten import PanelRect, derive
 from figspec_designer.ui.theme import smallcaps_font
 
@@ -35,6 +36,7 @@ class Sidebar(QWidget):
     card_copy_requested = Signal()
     asset_remove_requested = Signal(str)  # (panel_id)
     asset_dpi_edited = Signal(str, object)  # (panel_id, float|None)
+    standin_changed = Signal(str, object)  # (panel_id, archetype|"none"|None)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -114,6 +116,24 @@ class Sidebar(QWidget):
         self.hint_edit.setObjectName("hintEdit")
         self.hint_edit.setPlaceholderText("content hint (e.g. STEM image + FFT inset)")
         outer.addWidget(self.hint_edit)
+
+        # Stand-in archetype: Auto (infer from hint) / explicit / None
+        standin_row = QWidget()
+        standin_layout = QHBoxLayout(standin_row)
+        standin_layout.setContentsMargins(0, 0, 0, 0)
+        standin_layout.setSpacing(4)
+        standin_lbl = QLabel("Stand-in")
+        standin_lbl.setObjectName("fieldLabel")
+        self.standin_combo = QComboBox()
+        self.standin_combo.setObjectName("standinCombo")
+        for text, value in (("Auto", None), ("Line", "line"),
+                            ("Scatter", "scatter"), ("Bar", "bar"),
+                            ("Heatmap", "heatmap"),
+                            ("Micrograph", "micrograph"), ("None", "none")):
+            self.standin_combo.addItem(text, value)
+        standin_layout.addWidget(standin_lbl)
+        standin_layout.addWidget(self.standin_combo, stretch=1)
+        outer.addWidget(standin_row)
 
         # Aspect lock + geometry tools
         self.chk_aspect_lock = QCheckBox("Lock aspect ratio")
@@ -233,6 +253,8 @@ class Sidebar(QWidget):
         self.calc_nominal.valueChanged.connect(self._on_calc_nominal)
         self.calc_effective.valueChanged.connect(self._on_calc_effective)
         self.calc_nominal.setValue(8.0)  # the plan's narrative anchor
+        self.standin_combo.currentIndexChanged.connect(self._emit_standin)
+        self.standin_combo.setEnabled(False)
 
     def _emit_hint(self) -> None:
         if self._panel_id is None:
@@ -297,6 +319,11 @@ class Sidebar(QWidget):
             self.calc_nominal.setValue(value / self._k)
             self._calc_guard = False
 
+    def _emit_standin(self, index: int) -> None:
+        if self._panel_id is not None:
+            self.standin_changed.emit(self._panel_id,
+                                      self.standin_combo.itemData(index))
+
     def _emit_aspect_lock(self, checked: bool) -> None:
         if self._panel_id is None:
             return
@@ -329,7 +356,8 @@ class Sidebar(QWidget):
                    eff_dpi: float | None = None, dpi_level: str = "ok",
                    asset_missing: bool = False,
                    asset_dpi: float | None = None,
-                   scale_k: float | None = None) -> None:
+                   scale_k: float | None = None,
+                   stand_in: str | None = None) -> None:
         self._panel_id = panel_id
         w_px, h_px, figsize = derive(rect, dpi)
         self.lbl_label.setText(label)
@@ -358,6 +386,12 @@ class Sidebar(QWidget):
         self.hint_edit.setEnabled(True)
         self.hint_edit.setText(content_hint)
         self._last_hint = content_hint
+
+        self.standin_combo.blockSignals(True)
+        idx = self.standin_combo.findData(stand_in)
+        self.standin_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        self.standin_combo.blockSignals(False)
+        self.standin_combo.setEnabled(True)
 
         self.btn_copy_card.setEnabled(True)
 
@@ -419,4 +453,8 @@ class Sidebar(QWidget):
         self.btn_square.setEnabled(False)
         self.hint_edit.clear()
         self.hint_edit.setEnabled(False)
+        self.standin_combo.blockSignals(True)
+        self.standin_combo.setCurrentIndex(0)
+        self.standin_combo.blockSignals(False)
+        self.standin_combo.setEnabled(False)
         self.asset_box.setVisible(False)

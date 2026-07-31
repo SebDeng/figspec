@@ -26,7 +26,9 @@ def _fits(fm, text: str, rect: QRectF, margin_px: float) -> bool:
 
 
 def render_layout_image(tree, target, *, scale: int = 2,
-                        label_style: str = "lowercase") -> QImage:
+                        label_style: str = "lowercase",
+                        with_standins: bool = False,
+                        constraints=None) -> QImage:
     ppm = PX_PER_MM * scale
     w = round(target.figure_width_mm * ppm)
     h = round(target.figure_height_mm * ppm)
@@ -39,6 +41,23 @@ def render_layout_image(tree, target, *, scale: int = 2,
 
     painter = QPainter(img)
     painter.setRenderHint(QPainter.Antialiasing)
+
+    if with_standins and constraints is not None:
+        from PySide6.QtCore import QPointF
+        from figspec.layout.tree import iter_panels
+        from figspec_designer.ui.canvas import Canvas
+        from figspec_designer.ui.standin_painter import standin_picture
+        nodes = {n.id: n for n in iter_panels(tree)}
+        for r in rects:
+            kind = Canvas._resolve_standin(nodes[r.panel_id])
+            if kind is None:
+                continue
+            pic = standin_picture(kind, r.w_mm, r.h_mm, ppm, constraints,
+                                  r.panel_id)
+            painter.save()
+            painter.translate(r.x_mm * ppm, r.y_mm * ppm)
+            painter.drawPicture(QPointF(0, 0), pic)
+            painter.restore()
     letter_font = QFont()
     letter_font.setBold(True)
     letter_font.setPixelSize(max(10, round(3.2 * ppm)))
@@ -77,5 +96,6 @@ def render_layout_image(tree, target, *, scale: int = 2,
 
 def render_layout_png(doc, path, scale: int = 2) -> bool:
     img = render_layout_image(doc.tree, doc.target, scale=scale,
-                              label_style=doc.constraints.panel_label_style)
+                              label_style=doc.constraints.panel_label_style,
+                              with_standins=True, constraints=doc.constraints)
     return img.save(str(path))

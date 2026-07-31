@@ -95,3 +95,106 @@ def test_micrograph_has_bright_scalebar(qapp):
             if c.alpha() > 0 and min(c.red(), c.green(), c.blue()) >= 240:
                 found = True
     assert found
+
+
+# ---- canvas + sidebar wiring (task F3) ----------------------------------
+
+def test_sidebar_standin_choice_lands_in_tree_and_canvas(qtbot):
+    from figspec.layout.tree import iter_panels
+    from figspec_designer.ui.main_window import MainWindow
+    win = MainWindow()
+    qtbot.addWidget(win)
+    pid = next(iter_panels(win.doc.tree)).id
+    win.do_action("select", pid)
+    combo = win.sidebar.standin_combo
+    combo.setCurrentIndex(combo.findData("heatmap"))
+    assert next(iter_panels(win.doc.tree)).stand_in == "heatmap"
+    assert win.canvas.panel_widgets()[pid]._standin == "heatmap"
+    assert win.dirty
+    win.undo()
+    assert next(iter_panels(win.doc.tree)).stand_in is None
+
+
+def test_hint_inference_drives_canvas_standin(qtbot):
+    from figspec.layout.tree import iter_panels
+    from figspec_designer.ui.main_window import MainWindow
+    win = MainWindow()
+    qtbot.addWidget(win)
+    pid = next(iter_panels(win.doc.tree)).id
+    win._on_hint_edited(pid, "STEM image of the lattice")
+    assert win.canvas.panel_widgets()[pid]._standin == "micrograph"
+
+
+def test_explicit_none_suppresses_inference(qtbot):
+    from figspec.layout.tree import iter_panels
+    from figspec_designer.ui.main_window import MainWindow
+    win = MainWindow()
+    qtbot.addWidget(win)
+    pid = next(iter_panels(win.doc.tree)).id
+    win._on_hint_edited(pid, "Raman spectra")
+    assert win.canvas.panel_widgets()[pid]._standin == "line"
+    win._on_standin_changed(pid, "none")
+    assert win.canvas.panel_widgets()[pid]._standin is None
+
+
+def test_asset_thumb_wins_over_standin(qtbot, tmp_path):
+    from PySide6.QtGui import QImage as _QImage
+    from figspec.layout.tree import iter_panels
+    from figspec_designer.ui.main_window import MainWindow
+    win = MainWindow()
+    qtbot.addWidget(win)
+    pid = next(iter_panels(win.doc.tree)).id
+    win._on_standin_changed(pid, "line")
+    img = _QImage(400, 300, _QImage.Format_RGB32)
+    img.fill(0xFFFFFFFF)
+    png = tmp_path / "a.png"
+    img.save(str(png))
+    win._on_asset_dropped(pid, str(png))
+    widget = win.canvas.panel_widgets()[pid]
+    assert widget._thumb is not None
+    assert widget._standin is None  # thumb wins
+
+
+def test_standin_roundtrips_through_save(qtbot, tmp_path):
+    import json
+    from figspec.layout.tree import iter_panels
+    from figspec_designer.ui.main_window import MainWindow
+    win = MainWindow()
+    qtbot.addWidget(win)
+    pid = next(iter_panels(win.doc.tree)).id
+    win._on_standin_changed(pid, "bar")
+    path = tmp_path / "doc.figspec.json"
+    win.save_json(path)
+    assert json.loads(path.read_text())  # valid json
+    win2 = MainWindow()
+    qtbot.addWidget(win2)
+    assert win2.open_json(str(path)) is None
+    assert next(iter_panels(win2.doc.tree)).stand_in == "bar"
+
+
+# ---- wireframe export with stand-ins (task F4) ---------------------------
+
+def test_layout_export_with_standins_differs(qtbot, tmp_path):
+    from figspec_designer.ui.main_window import MainWindow
+    from figspec_designer.ui.preview_export import render_layout_image
+    win = MainWindow()
+    qtbot.addWidget(win)
+    pid = next(iter(win.canvas.panel_widgets()))
+    win._on_hint_edited(pid, "Raman spectra")
+    plain = render_layout_image(win.doc.tree, win.doc.target)
+    rich = render_layout_image(win.doc.tree, win.doc.target,
+                               with_standins=True,
+                               constraints=win.doc.constraints)
+    assert plain != rich
+
+
+def test_layout_png_export_includes_standins(qtbot, tmp_path):
+    from figspec_designer.ui.main_window import MainWindow
+    from figspec_designer.ui.preview_export import render_layout_png
+    win = MainWindow()
+    qtbot.addWidget(win)
+    pid = next(iter(win.canvas.panel_widgets()))
+    win._on_hint_edited(pid, "Raman spectra")
+    out = tmp_path / "layout.png"
+    assert render_layout_png(win.doc, out) is True
+    assert out.stat().st_size > 0

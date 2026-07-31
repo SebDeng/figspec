@@ -213,6 +213,25 @@ def set_asset_dpi(root: Node, panel_id: str, dpi: float | None) -> Node:
     return out
 
 
+def set_stand_in(root: Node, panel_id: str, value: str | None) -> Node:
+    """Pick a stand-in archetype ("line"…), suppress it ("none"), or return
+    to hint inference (None)."""
+    def rec(node: Node) -> Node:
+        if isinstance(node, PanelNode):
+            if node.id == panel_id:
+                return replace(node, stand_in=value)
+            return node
+        children = tuple(rec(c) for c in node.children)
+        if all(a is b for a, b in zip(children, node.children)):
+            return node
+        return SplitNode(node.orientation, node.ratios, children)
+
+    out = rec(root)
+    if out is root:
+        raise KeyError(panel_id)
+    return out
+
+
 def set_aspect_lock(root: Node, panel_id: str, value: float | None) -> Node:
     def rec(node: Node) -> Node:
         if isinstance(node, PanelNode):

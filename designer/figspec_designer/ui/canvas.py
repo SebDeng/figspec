@@ -148,9 +148,14 @@ class Canvas(QWidget):
             thumb, missing = self._load_thumb(node)
             text = format_label(labels.get(node.id, "?"),
                                 self._doc.constraints.panel_label_style)
+            standin = self._resolve_standin(node)
+            rect = rects.get(node.id)
             w = PanelWidget(node.id, text,
                             aspect_violated=violated,
-                            thumb=thumb, asset_missing=missing)
+                            thumb=thumb, asset_missing=missing,
+                            standin=standin,
+                            standin_mm=(rect.w_mm, rect.h_mm) if rect else None,
+                            constraints=self._doc.constraints)
             w.action.connect(self.panel_action.emit)
             w.asset_dropped.connect(self.asset_dropped.emit)
             panel_shadow(w)
@@ -168,6 +173,18 @@ class Canvas(QWidget):
         splitter.setSizes([max(round(r * total_px), 1) for r in node.ratios])
         self._splitters[path] = splitter
         return splitter
+
+    @staticmethod
+    def _resolve_standin(node: PanelNode) -> str | None:
+        """Explicit choice wins; None falls back to hint inference;
+        "none" suppresses. Asset panels never get one (thumb wins)."""
+        if node.asset is not None:
+            return None
+        kind = node.stand_in
+        if kind is None:
+            from figspec.standins import infer
+            kind = infer(node.content_hint)
+        return None if kind in (None, "none") else kind
 
     @staticmethod
     def _aspect_violated(node: PanelNode, rects: dict) -> bool:

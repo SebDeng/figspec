@@ -19,10 +19,15 @@ class PanelWidget(QFrame):
 
     def __init__(self, panel_id: str, label_text: str, parent: QWidget | None = None,
                 *, aspect_violated: bool = False, thumb: "QPixmap | None" = None,
-                asset_missing: bool = False):
+                asset_missing: bool = False, standin: str | None = None,
+                standin_mm: tuple[float, float] | None = None,
+                constraints=None):
         super().__init__(parent)
         self.panel_id = panel_id
         self._thumb = thumb
+        self._standin = standin
+        self._standin_mm = standin_mm
+        self._constraints = constraints
         self.setObjectName("panel")
         self.setProperty("selected", False)
         self.setProperty("swapArmed", False)
@@ -73,9 +78,14 @@ class PanelWidget(QFrame):
         self.label_widget = QLabel(label_text, self)
         self.label_widget.setObjectName("panelLetter")
         self.label_widget.setAlignment(Qt.AlignCenter)
-        if thumb is not None:
+        if thumb is not None or self._has_standin():
             self.label_widget.setProperty("onImage", True)
         root.addWidget(self.label_widget, stretch=1)
+
+    def _has_standin(self) -> bool:
+        return (self._thumb is None and self._standin is not None
+                and self._standin_mm is not None
+                and self._constraints is not None)
 
     def set_label(self, text: str) -> None:
         self.label_widget.setText(text)
@@ -142,6 +152,7 @@ class PanelWidget(QFrame):
     def paintEvent(self, event) -> None:
         super().paintEvent(event)  # QSS card background/border first
         if self._thumb is None or self._thumb.isNull():
+            self._paint_standin()
             return
         from PySide6.QtCore import QSize
         from PySide6.QtGui import QPainter
@@ -152,4 +163,23 @@ class PanelWidget(QFrame):
         painter = QPainter(self)
         painter.drawPixmap(inset + (target.width() - scaled.width()) // 2,
                            inset + (target.height() - scaled.height()) // 2, scaled)
+        painter.end()
+
+    def _paint_standin(self) -> None:
+        if not self._has_standin():
+            return
+        avail_w = self.width() - 2 * self._THUMB_INSET_PX
+        avail_h = self.height() - 2 * self._THUMB_INSET_PX
+        w_mm, h_mm = self._standin_mm
+        if avail_w < 12 or avail_h < 12 or w_mm <= 0 or h_mm <= 0:
+            return
+        from PySide6.QtGui import QPainter
+        from figspec_designer.ui.standin_painter import standin_picture
+        # The widget's own px/mm: the picture is generated at exactly this
+        # scale, so replaying it needs no transform (and stays honest).
+        ppm = min(avail_w / w_mm, avail_h / h_mm)
+        pic = standin_picture(self._standin, w_mm, h_mm, ppm,
+                              self._constraints, self.panel_id)
+        painter = QPainter(self)
+        painter.drawPicture(self._THUMB_INSET_PX, self._THUMB_INSET_PX, pic)
         painter.end()
