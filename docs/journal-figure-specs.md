@@ -1,7 +1,7 @@
 # 期刊 Figure 规范速查（Nature / Science / APS / ACS）
 
 **数据日期**：2026-07-30（各来源访问日期同）。
-**核验**：约 30 条关键数字经独立复核，零错配。
+**核验**：约 25 条关键数字经独立复核，零错配。
 **用途**：FigSpec 预设与约束的依据。投稿前请以期刊现行指南为准。
 
 ## 对比总表
@@ -98,7 +98,7 @@
   来源：https://cdn.journals.aps.org/files/styleguide-pr.pdf （"Physical Review Style and Notation Guide"，1983 年制定，2011 年 6 月最后小修）。
   现行 2026 年 2 月版 Style Guide 全文不含 17.8 cm 或任何双栏数字，仅允许 "Use a width of 1.5 or 2 columns for more detailed figures" 而不给出具体宽度。
 - 1.5 栏：现行指南仅允许使用，无数字；legacy 指南 "medium (centered)" 宽度 14 cm（5.5 in.）=140 mm（同一 legacy 来源）。
-- 字号：现行指南未给出 pt 值，仅规定 "the height of the smallest capital letters and numerals at least 2 mm"；换算 2 mm≈5.67 pt 字形高度，confidence_notes 说明 "a 2 mm cap height corresponds very roughly to ~8 pt nominal type"（对 Helvetica 而言约 7.9 pt）——presets.py 中 `aps` 的 `min_font_pt=8.0` 即由此派生，非 APS 直接给出的 pt 数字。
+- 字号：现行指南未给出 pt 值，仅规定 "the height of the smallest capital letters and numerals at least 2 mm"；换算 2 mm≈5.67 pt 字形高度。调研数据 confidence_notes 原文口径为 "a 2 mm cap height corresponds very roughly to ~8 pt nominal type"（未给出 7.9 或 Helvetica 字样）。**"约 7.9 pt"是 FigSpec 自行的派生计算**，非调研数据原文：以 Helvetica 大写字高度约为字号的 0.717 em 折算，2 mm ÷ 0.717 ≈ 2.79 mm（字号）≈ 7.9 pt——presets.py 文档字符串引用该计算作为 `aps` 的 `min_font_pt=8.0`（四舍五入）的推导依据，非 APS 直接给出的 pt 数字。
 - 线宽：逐字 "consistent line widths of at least 0.18 mm (0.5 point)"，同一 Style Guide 与 style-basics 页。
 - DPI：仅笼统要求 "The resolution of the drawing software should be set as high as possible (preferably 600 dpi or higher)"，未按线稿/灰度/彩色分类；未扫描的照片无具体 dpi 数字（仅要求 "high-resolution .jpg or .png"）。
 - panel 标号：小写带括号 (a), (b), (c)，未规定字号或字重；引用格式为 "Fig. 1(a)"。
