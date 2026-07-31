@@ -63,6 +63,20 @@ python -m figspec_designer
 cd designer/packaging && ./build_macos.sh
 ```
 
+## MCP 服务（面向 AI agent 的原生访问）
+
+`figspec-mcp` 通过 MCP（stdio）将整套工具链暴露给 AI agent：检查 PDF、
+创建/读取/写入 figspec.json，以及编辑布局（拆分/关闭面板、设置提示）——
+全部为无状态的文件操作。
+
+```bash
+pip install "figspec[mcp]"
+claude mcp add figspec -- figspec-mcp
+```
+
+工具：`lint_pdf`、`new_spec`、`read_spec`、`write_spec`、`split_panel`、
+`close_panel`、`set_panel_hint`、`list_presets`。
+
 ## 输出示例
 
 内置自检，针对包内自动生成的样例运行：

@@ -63,6 +63,20 @@ Build a signed DMG (needs Apple Developer ID; see
 cd designer/packaging && ./build_macos.sh
 ```
 
+## MCP server (agent-native access)
+
+`figspec-mcp` exposes the toolchain to AI agents over MCP (stdio): lint a
+PDF, create/read/write figspec.json, and edit layouts (split/close panels,
+set hints) — all stateless file operations.
+
+```bash
+pip install "figspec[mcp]"
+claude mcp add figspec -- figspec-mcp
+```
+
+Tools: `lint_pdf`, `new_spec`, `read_spec`, `write_spec`, `split_panel`,
+`close_panel`, `set_panel_hint`, `list_presets`.
+
 ## Example output
 
 Built-in self test, run against the package's own generated samples:
