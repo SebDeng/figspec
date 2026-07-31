@@ -1,7 +1,7 @@
 # Designer 内容替身与实寸排版真相（构思稿）
 
 **日期**：2026-07-31
-**状态**：Draft v2（构思，待讨论；非批次计划，暂不排期。v2 纳入三种内容出身的区分与手作图缩放真相）
+**状态**：Planned（开放问题已按建议定案，决策记录与批次拆分见 `docs/superpowers/plans/2026-07-31-standin-truescale-plan.md`）
 **范围**：Designer 侧纯可视化，四件事——panel 内容替身（占位预演）、实寸模式（1:1 物理缩放）、磅尺样张条（任意缩放下的排版真相）、缩放真相（手作图的名义值 → 有效值前移）。明确不做、也不预设 M1 渲染引擎的任何设计。
 
 ## 0. 动机：占位灰框在"物理感"上说谎
@@ -57,7 +57,7 @@ External panel 已有真资产缩略图，那本身就是最好的替身；未�
 
 画布获得缩放模型：**fit（现状）/ 100% 实寸 / 手动档位（50–400%）**，Cmd+0 / Cmd+1 切换，超出窗口时 QScrollArea 滚动。
 
-实寸换算：`px_per_mm = physicalDotsPerInch × devicePixelRatio ÷ 25.4`（QScreen）。Mac 内屏此值基本可信；外接显示器常说谎 → 提供一次性校准（View > 校准显示器…：屏上画 100 mm 标尺，拖动直到与实尺或银行卡长边 85.60 mm 重合），修正值按屏幕序列号存 QSettings，不进文档。
+实寸换算：`px_per_mm = screen.geometry().width() ÷ screen.physicalSize().width()`（QScreen；geometry 是逻辑像素、physicalSize 是 mm，直接相除即得逻辑像素每毫米，完全绕开 devicePixelRatio 算术——physicalDotsPerInch 在各平台口径不一，不用）。Mac 内屏此值基本可信；外接显示器常说谎 → 提供一次性校准（View > 校准显示器…：屏上画 100 mm 标尺，拖动直到与实尺或银行卡长边 85.60 mm 重合），修正值按屏幕序列号存 QSettings，不进文档。
 
 实寸模式下画布就是打印小样：可以拿真尺子贴屏量，5 pt 的字、0.25 pt 的线有多大，眼见为实。
 
@@ -89,7 +89,7 @@ AI 图的教义是让 k ≡ 1（按最终物理尺寸出图，M1 契约在结构
 
 **补偿（作图卡片）。** 每 panel 一键复制"作图卡片"，同一契约三种表述（以 60 × 36 mm panel、Nature 约束、1472 × 879 px @ 96 dpi 画布为例）：
 1. **金路径**：把作者画布改成 panel 物理尺寸（60 × 36 mm / 2.36 × 1.42 in），字号直接用最终值 5–7 pt、线宽 ≥ 0.25 pt；
-2. **保持现画布**：需用 32.5–45.5 pt 字、≥ 1.6 pt 线（= 约束值 ÷ k）；
+2. **保持现画布**：需用 32.5–45.4 pt 字、≥ 1.6 pt 线（= 约束值 ÷ k）；
 3. **像素目标**：导出 ≥ 709 × 426 px 方能达到 300 有效 dpi。
 
 这与 `snippet.py` 是同一枚硬币的两面：**snippet 是给 matplotlib/AI 的契约，作图卡片是给 Origin/Prism/PPT/手绘工具的契约**——受众不同，内容同源（全部由 spec + constraints 派生，实现放 `figspec/`，MCP/CLI 未来可原样输出）。
