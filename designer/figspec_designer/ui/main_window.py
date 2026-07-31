@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from PySide6.QtCore import Qt, QSettings
 from PySide6.QtGui import QAction, QKeySequence
-from PySide6.QtWidgets import (QFileDialog, QHBoxLayout, QMainWindow,
+from PySide6.QtWidgets import (QFileDialog, QHBoxLayout, QInputDialog, QMainWindow,
                                QMessageBox, QApplication, QVBoxLayout, QWidget)
 from figspec.spec import Constraints, Target
 from figspec_designer.document import DesignerDocument, MissingDesignerData
@@ -28,6 +28,11 @@ class MainWindow(QMainWindow):
         self.selected_panel_id: str | None = None
         self.current_path: Path | None = None
         self.dirty: bool = False
+        # Set while "swap" is armed (panel id chosen first): the next
+        # "select" action either executes ops.swap_panels against it (a
+        # different id) or cancels (same id / Esc) -- see do_action/
+        # keyPressEvent.
+        self._swap_pending: str | None = None
 
         self.topbar = TopBar()
         self.canvas = Canvas()
@@ -94,6 +99,15 @@ class MainWindow(QMainWindow):
             lambda: self.do_action("split_down", self.selected_panel_id))
         act(panel_menu, "Delete Panel", "Ctrl+Backspace",
             lambda: self.do_action("close", self.selected_panel_id))
+        panel_menu.addSeparator()
+        act(panel_menu, "Split Right N…", None,
+            lambda: self.do_action("split_right_n", self.selected_panel_id))
+        act(panel_menu, "Split Down N…", None,
+            lambda: self.do_action("split_down_n", self.selected_panel_id))
+        act(panel_menu, "Equalize", None,
+            lambda: self.do_action("equalize", self.selected_panel_id))
+        act(panel_menu, "Swap", None,
+            lambda: self.do_action("swap", self.selected_panel_id))
 
     # ---- state ------------------------------------------------------
     def _push_tree(self, new_tree) -> None:
@@ -160,6 +174,8 @@ class MainWindow(QMainWindow):
     # ---- actions ----------------------------------------------------
     def do_action(self, action: str, panel_id: str | None = None) -> None:
         if action == "select":
+            if self._swap_pending is not None:
+                self._resolve_swap(panel_id)
             # Flush any typed-but-unconfirmed content hint before the
             # sidebar's show_panel() overwrites hint_edit with the newly
             # selected panel's text (clicking another panel never fires
@@ -172,17 +188,93 @@ class MainWindow(QMainWindow):
         if panel_id is None:
             self.statusBar().showMessage("Select a panel first", 3000)
             return
+        dims = (self.doc.target.figure_width_mm, self.doc.target.figure_height_mm,
+                self.doc.target.gutter_mm)
         try:
             if action == "split_right":
                 self._push_tree(ops.split_panel(self.doc.tree, panel_id, "right"))
             elif action == "split_down":
                 self._push_tree(ops.split_panel(self.doc.tree, panel_id, "down"))
+            elif action == "split_right_n":
+                self._split_n(panel_id, "right", dims)
+            elif action == "split_down_n":
+                self._split_n(panel_id, "down", dims)
+            elif action == "equalize":
+                self._push_tree(ops.equalize_siblings(self.doc.tree, panel_id))
+            elif action == "swap":
+                self._swap_pending = panel_id
+                self.statusBar().showMessage(
+                    "Swap: select another panel to exchange with (Esc to cancel)")
             elif action == "close":
                 self._push_tree(ops.close_panel(self.doc.tree, panel_id))
-        except ValueError:
-            self.statusBar().showMessage("Cannot delete the last panel", 3000)
+        except ValueError as e:
+            msg = "Cannot delete the last panel" if action == "close" else str(e)
+            self.statusBar().showMessage(msg, 3000)
         except KeyError:
             self.statusBar().showMessage("Panel no longer exists", 3000)
+
+    def _split_n(self, panel_id: str, direction: str,
+                dims: tuple[float, float, float]) -> None:
+        n = self._ask_n()
+        if n is None:  # dialog cancelled
+            return
+        page_w_mm, page_h_mm, gutter_mm = dims
+        self._push_tree(ops.split_panel_n(
+            self.doc.tree, panel_id, direction, n,
+            page_w_mm=page_w_mm, page_h_mm=page_h_mm, gutter_mm=gutter_mm))
+
+    def _ask_n(self) -> int | None:
+        """Factored out so tests can monkeypatch it to bypass the modal
+        QInputDialog. Returns None if the user cancelled."""
+        n, ok = QInputDialog.getInt(self, "Split panel", "Number of panels:",
+                                    3, 2, 8)
+        return n if ok else None
+
+    def _resolve_swap(self, panel_id: str | None) -> None:
+        """Called from do_action("select", ...) while swap mode is armed.
+        A different, existing panel id completes the swap; the same id
+        (or no id) cancels -- either way swap mode is cleared."""
+        pending = self._swap_pending
+        self._swap_pending = None
+        if panel_id is None or panel_id == pending:
+            self.statusBar().showMessage("Swap cancelled", 3000)
+            return
+        try:
+            self._push_tree(ops.swap_panels(self.doc.tree, pending, panel_id))
+        except (ValueError, KeyError) as e:
+            self.statusBar().showMessage(str(e), 3000)
+
+    # ---- keyboard: swap-cancel + nudge -------------------------------
+    def keyPressEvent(self, event) -> None:
+        if event.key() == Qt.Key_Escape and self._swap_pending is not None:
+            self._swap_pending = None
+            self.statusBar().showMessage("Swap cancelled", 3000)
+            return
+        if self.selected_panel_id is not None and event.modifiers() & Qt.ControlModifier:
+            axis_delta = {
+                Qt.Key_Left: ("w", -1.0), Qt.Key_Right: ("w", 1.0),
+                Qt.Key_Up: ("h", -1.0), Qt.Key_Down: ("h", 1.0),
+            }.get(event.key())
+            if axis_delta is not None:
+                axis, sign = axis_delta
+                step = 2.0 if event.modifiers() & Qt.ShiftModifier else 0.5
+                self._nudge(axis, sign * step)
+                return
+        super().keyPressEvent(event)
+
+    def _nudge(self, axis: str, delta_mm: float) -> None:
+        pid = self.selected_panel_id
+        rect = next((r for r in self.doc.panel_rects() if r.panel_id == pid), None)
+        if rect is None:
+            return
+        current = rect.w_mm if axis == "w" else rect.h_mm
+        try:
+            self._push_tree(ops.set_panel_size(
+                self.doc.tree, pid, axis, current + delta_mm,
+                self.doc.target.figure_width_mm, self.doc.target.figure_height_mm,
+                self.doc.target.gutter_mm))
+        except (ValueError, KeyError) as e:
+            self.statusBar().showMessage(str(e), 3000)
 
     def apply_ratios(self, path, ratios) -> None:
         self._push_tree(ops.set_ratios(self.doc.tree, tuple(path), tuple(ratios)))

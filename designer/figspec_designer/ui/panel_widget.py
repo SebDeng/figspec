@@ -1,7 +1,7 @@
 """A single panel on the canvas: big label, hover action buttons."""
 from __future__ import annotations
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QToolButton,
+from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QMenu, QToolButton,
                                QVBoxLayout, QWidget)
 from figspec_designer.ui.theme import repolish
 
@@ -82,3 +82,14 @@ class PanelWidget(QFrame):
     def mousePressEvent(self, event) -> None:
         self.action.emit("select", self.panel_id)
         super().mousePressEvent(event)
+
+    def contextMenuEvent(self, event) -> None:
+        menu = QMenu(self)
+        menu.addAction("Split Right N…",
+                       lambda: self.action.emit("split_right_n", self.panel_id))
+        menu.addAction("Split Down N…",
+                       lambda: self.action.emit("split_down_n", self.panel_id))
+        menu.addAction("Equalize",
+                       lambda: self.action.emit("equalize", self.panel_id))
+        menu.addAction("Swap", lambda: self.action.emit("swap", self.panel_id))
+        menu.exec(event.globalPos())

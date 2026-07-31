@@ -159,12 +159,50 @@ class Canvas(QWidget):
         if total <= 0:
             return
         ratios = tuple(s / total for s in sizes_px)
+        node = ops.node_at(self._doc.tree, splitter.path)
+        avail_mm = (self._axis_mm(node, splitter.path)
+                    - (len(sizes_px) - 1) * self._doc.target.gutter_mm)
+        # Clamp every child to >= MIN_PANEL_MM BEFORE any snapping (and
+        # even when Alt bypasses snapping) so a drag -- free or snapped --
+        # can never commit a panel below the minimum size.
+        ratios = self._clamp_min_mm(ratios, avail_mm)
         if not alt_held:
-            node = ops.node_at(self._doc.tree, splitter.path)
-            avail_mm = (self._axis_mm(node, splitter.path)
-                        - (len(sizes_px) - 1) * self._doc.target.gutter_mm)
             ratios = ops.snap_ratios(ratios, avail_mm)
         self.ratios_committed.emit(splitter.path, ratios)
+
+    @staticmethod
+    def _clamp_min_mm(ratios: tuple[float, ...], avail_mm: float) -> tuple[float, ...]:
+        """Raise any child below ops.MIN_PANEL_MM up to exactly that size,
+        shrinking the others proportionally to absorb the difference, then
+        renormalize back to ratio-space. Runs as a small fixed-point loop
+        (bounded by len(ratios) iterations) since locking one child down to
+        the minimum can push an already-fine sibling below it in turn."""
+        n = len(ratios)
+        if avail_mm <= 0 or n * ops.MIN_PANEL_MM > avail_mm + 1e-9:
+            return ratios  # not enough room to honor the minimum for every child
+        sizes = [r * avail_mm for r in ratios]
+        locked = [False] * n
+        for _ in range(n):
+            below = [i for i in range(n)
+                     if not locked[i] and sizes[i] < ops.MIN_PANEL_MM - 1e-9]
+            if not below:
+                break
+            for i in below:
+                sizes[i] = ops.MIN_PANEL_MM
+                locked[i] = True
+            free = [i for i in range(n) if not locked[i]]
+            if not free:
+                break
+            free_total = sum(sizes[i] for i in free)
+            target = avail_mm - ops.MIN_PANEL_MM * sum(locked)
+            if free_total > 0:
+                scale = target / free_total
+                for i in free:
+                    sizes[i] *= scale
+        total = sum(sizes)
+        if total <= 0:
+            return ratios
+        return tuple(s / total for s in sizes)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)

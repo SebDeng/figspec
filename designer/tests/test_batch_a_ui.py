@@ -269,3 +269,42 @@ def test_confirm_discard_save_choice_routes_through_save(qtbot, monkeypatch):
     monkeypatch.setattr(win, "save", lambda: save_calls.append(True) or True)
     assert win.confirm_discard() is True
     assert save_calls == [True]
+
+
+# ---- Task 4: split-n / equalize / swap / nudge -----------------------------
+
+def test_split_n_via_action(qtbot, monkeypatch):
+    win, first = _win(qtbot)
+    monkeypatch.setattr(win, "_ask_n", lambda: 3)
+    win.do_action("split_right_n", first)
+    assert len(list(iter_panels(win.doc.tree))) == 4  # 2 before + 2 added
+
+
+def test_equalize_via_action(qtbot, monkeypatch):
+    win, first = _win(qtbot)
+    monkeypatch.setattr(win, "_ask_n", lambda: 3)
+    win.do_action("split_right_n", first)
+    win.do_action("equalize", first)
+    rects = {r.panel_id: r for r in win.doc.panel_rects()}
+    widths = sorted(round(r.w_mm, 1) for r in rects.values())
+    assert len(set(widths[:3])) == 1  # the three split siblings equal
+
+
+def test_swap_flow(qtbot):
+    win, first = _win(qtbot)
+    other = [p.id for p in iter_panels(win.doc.tree) if p.id != first][0]
+    win.do_action("swap", first)
+    win.do_action("select", other)
+    labels = win.doc.labels()
+    rects = {r.panel_id: r for r in win.doc.panel_rects()}
+    assert rects[first].x_mm > rects[other].x_mm  # positions exchanged
+
+
+def test_nudge_shortcut(qtbot):
+    from PySide6.QtCore import Qt
+    win, first = _win(qtbot)
+    win.do_action("select", first)
+    before = {r.panel_id: r for r in win.doc.panel_rects()}[first].w_mm
+    qtbot.keyClick(win, Qt.Key_Right, Qt.ControlModifier)
+    after = {r.panel_id: r for r in win.doc.panel_rects()}[first].w_mm
+    assert after == pytest.approx(before + 0.5)
