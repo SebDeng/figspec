@@ -2,7 +2,7 @@ import pytest
 from figspec.layout.tree import PanelNode, SplitNode, from_dict, to_dict
 from figspec.layout.flatten import flatten
 from figspec.layout.ops import (MIN_PANEL_MM, equalize_siblings, set_aspect_lock,
-                                set_panel_size, split_panel_n, swap_panels)
+                                set_panel_size, split_panel, split_panel_n, swap_panels)
 
 A, B, C = PanelNode("A"), PanelNode("B"), PanelNode("C")
 
@@ -72,6 +72,42 @@ def test_split_n_dims_guard_ignores_preexisting_violation():
     r = _rects(out, w=100.0, h=100.0, g=4.0)
     assert r["E"].h_mm == pytest.approx(3.84)  # untouched, still sub-5mm, no error
     assert r["F"].w_mm == pytest.approx(23.0)
+
+
+def test_split_panel_no_dims_backward_compat():
+    out = split_panel(A, "A", "right")
+    assert isinstance(out, SplitNode) and out.orientation == "row"
+    assert out.ratios == (0.5, 0.5) and out.children[0] == A
+
+
+def test_split_panel_dims_guard():
+    # A is pinned to exactly MIN_PANEL_MM (5mm) wide on a 183x100/gutter-4
+    # page; splitting it in two (adding a gutter, halving its ratio) pushes
+    # both halves well under 5mm.
+    root = SplitNode("row", (5 / 179, 174 / 179), (A, B))
+    r = _rects(root, w=183.0, h=100.0, g=4.0)
+    assert r["A"].w_mm == pytest.approx(5.0)
+    with pytest.raises(ValueError):
+        split_panel(root, "A", "right",
+                    page_w_mm=183.0, page_h_mm=100.0, gutter_mm=4.0)
+    # No-dims call keeps working (structure-only, no guard) -- same contract
+    # as split_panel_n.
+    out = split_panel(root, "A", "right")
+    assert len(out.children) == 3
+
+
+def test_set_panel_size_guard_nested_sibling_subtree():
+    # Reviewer repro: resizing hero doesn't touch right_top_row directly, but
+    # shrinking its right_column ancestor drags rt1/rt2 well under
+    # MIN_PANEL_MM (to 4.5mm each) -- the old guard only checked the
+    # controlling split's direct children (hero, right_column), missing this.
+    hero = PanelNode("hero")
+    rt1, rt2, rb = PanelNode("rt1"), PanelNode("rt2"), PanelNode("rb")
+    right_top_row = SplitNode("row", (0.5, 0.5), (rt1, rt2))
+    right_column = SplitNode("column", (0.5, 0.5), (right_top_row, rb))
+    root = SplitNode("row", (0.5, 0.5), (hero, right_column))
+    with pytest.raises(ValueError):
+        set_panel_size(root, "hero", "w", 166.0, 183.0, 100.0, 4.0)
 
 
 def test_equalize_siblings():

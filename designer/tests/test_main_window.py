@@ -44,6 +44,22 @@ def test_apply_ratios_updates_model(qtbot):
     assert abs(rects[0].w_mm - (183 - 4) * 0.6) < 1e-6
 
 
+# ---- Important 3a: split_right/split_down route real page dims into the
+# ops.split_panel min-size guard ---------------------------------------------
+
+def test_split_right_enforces_min_size_guard_end_to_end(qtbot):
+    win = MainWindow()
+    qtbot.addWidget(win)
+    first = _first_panel(win)
+    win.do_action("split_right", first)  # 2 panels, default 183x100mm/gutter4
+    win.apply_ratios((), (5 / 179, 174 / 179))  # pin `first` to exactly 5mm wide
+    rects = {r.panel_id: r for r in win.doc.panel_rects()}
+    assert rects[first].w_mm == pytest.approx(5.0)
+    before_count = len(list(iter_panels(win.doc.tree)))
+    win.do_action("split_right", first)  # would shrink both halves under 5mm
+    assert len(list(iter_panels(win.doc.tree))) == before_count  # rejected
+
+
 def test_export_valid_and_copy(qtbot):
     win = MainWindow()
     qtbot.addWidget(win)

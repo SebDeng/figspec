@@ -198,9 +198,13 @@ class MainWindow(QMainWindow):
                 self.doc.target.gutter_mm)
         try:
             if action == "split_right":
-                self._push_tree(ops.split_panel(self.doc.tree, panel_id, "right"))
+                self._push_tree(ops.split_panel(
+                    self.doc.tree, panel_id, "right",
+                    page_w_mm=dims[0], page_h_mm=dims[1], gutter_mm=dims[2]))
             elif action == "split_down":
-                self._push_tree(ops.split_panel(self.doc.tree, panel_id, "down"))
+                self._push_tree(ops.split_panel(
+                    self.doc.tree, panel_id, "down",
+                    page_w_mm=dims[0], page_h_mm=dims[1], gutter_mm=dims[2]))
             elif action == "split_right_n":
                 self._split_n(panel_id, "right", dims)
             elif action == "split_down_n":

@@ -9,22 +9,61 @@ _ORIENT = {"right": "row", "down": "column"}
 MIN_PANEL_MM = 5.0
 
 
-def split_panel(root: Node, panel_id: str, direction: str) -> Node:
+def _guard_min_panels(old_root: Node, new_root: Node, page_w_mm: float,
+                      page_h_mm: float, gutter_mm: float, *,
+                      produced_ids: frozenset[str] = frozenset()) -> None:
+    """Compare every panel's real rect on old_root vs. new_root (via
+    flatten) and raise ValueError for any panel -- one newly produced by
+    the change (in produced_ids), or any pre-existing panel the change
+    itself shrunk -- that ends up below MIN_PANEL_MM. Panels that were
+    already sub-MIN_PANEL_MM before the change, and aren't newly produced,
+    are left alone: the op isn't blamed for a violation it didn't cause.
+    Shared by split_panel, split_panel_n and set_panel_size -- one guard
+    implementation (spec A6: 所有产生新几何的操作拒绝 < 5mm panel)."""
+    old_rects = {r.panel_id: r for r in flatten(old_root, page_w_mm, page_h_mm, gutter_mm)}
+    new_rects = {r.panel_id: r for r in flatten(new_root, page_w_mm, page_h_mm, gutter_mm)}
+    for pid, rect in new_rects.items():
+        for dim in ("w_mm", "h_mm"):
+            new_val = getattr(rect, dim)
+            if new_val >= MIN_PANEL_MM - 1e-9:
+                continue
+            old_rect = old_rects.get(pid)
+            was_fine_before = (old_rect is not None
+                               and getattr(old_rect, dim) >= MIN_PANEL_MM - 1e-9)
+            if pid in produced_ids or was_fine_before:
+                raise ValueError(
+                    f"operation would shrink a panel below {MIN_PANEL_MM:g} mm")
+
+
+def split_panel(root: Node, panel_id: str, direction: str, *,
+                page_w_mm: float | None = None, page_h_mm: float | None = None,
+                gutter_mm: float | None = None) -> Node:
+    """Split panel_id in two along direction. When page_w_mm, page_h_mm and
+    gutter_mm are all given, applies the same before/after min-size guard
+    as split_panel_n (see _guard_min_panels); with no dims given (the
+    default), this is structure-only (ratio-space) with no size guard, for
+    pure-tree callers that don't have page geometry on hand.
+    """
     if direction not in _ORIENT:
         raise ValueError(f"direction must be right|down, got {direction!r}")
     orient = _ORIENT[direction]
+    new_ids: list[str] = []
 
     def rec(node: Node) -> Node:
         if isinstance(node, PanelNode):
             if node.id != panel_id:
                 return node
-            return SplitNode(orient, (0.5, 0.5), (node, new_panel()))
+            new = new_panel()
+            new_ids.append(new.id)
+            return SplitNode(orient, (0.5, 0.5), (node, new))
         children: list[Node] = []
         ratios: list[float] = []
         for child, ratio in zip(node.children, node.ratios):
             if (isinstance(child, PanelNode) and child.id == panel_id
                     and node.orientation == orient):
-                children.extend([child, new_panel()])
+                new = new_panel()
+                new_ids.append(new.id)
+                children.extend([child, new])
                 ratios.extend([ratio / 2, ratio / 2])
             else:
                 children.append(rec(child))
@@ -37,6 +76,10 @@ def split_panel(root: Node, panel_id: str, direction: str) -> Node:
     out = rec(root)
     if out is root:
         raise KeyError(panel_id)
+
+    if page_w_mm is not None and page_h_mm is not None and gutter_mm is not None:
+        _guard_min_panels(root, out, page_w_mm, page_h_mm, gutter_mm,
+                          produced_ids=frozenset({panel_id, *new_ids}))
     return out
 
 
@@ -197,30 +240,13 @@ def split_panel_n(root: Node, panel_id: str, direction: str, n: int, *,
             return node
         return SplitNode(node.orientation, tuple(ratios), tuple(children))
 
-    guard_dims = (page_w_mm is not None and page_h_mm is not None
-                  and gutter_mm is not None)
-    old_rects = ({r.panel_id: r for r in flatten(root, page_w_mm, page_h_mm, gutter_mm)}
-                if guard_dims else None)
-
     out = rec(root)
     if out is root:
         raise KeyError(panel_id)
 
-    if old_rects is not None:
-        produced = {panel_id, *new_ids}
-        new_rects = {r.panel_id: r for r in flatten(out, page_w_mm, page_h_mm, gutter_mm)}
-        for pid, rect in new_rects.items():
-            for dim in ("w_mm", "h_mm"):
-                new_val = getattr(rect, dim)
-                if new_val >= MIN_PANEL_MM - 1e-9:
-                    continue
-                old_rect = old_rects.get(pid)
-                was_fine_before = (old_rect is not None
-                                   and getattr(old_rect, dim) >= MIN_PANEL_MM - 1e-9)
-                if pid in produced or was_fine_before:
-                    raise ValueError(
-                        f"splitting into {n} would shrink a panel below "
-                        f"{MIN_PANEL_MM:g} mm")
+    if page_w_mm is not None and page_h_mm is not None and gutter_mm is not None:
+        _guard_min_panels(root, out, page_w_mm, page_h_mm, gutter_mm,
+                          produced_ids=frozenset({panel_id, *new_ids}))
 
     return out
 
@@ -336,6 +362,12 @@ def set_panel_size(root: Node, panel_id: str, axis: str, size_mm: float,
         else:
             share = (r / old_others) if old_others > 0 else 1.0 / (n - 1)
             new_ratios.append(remainder * share / avail)
-    if any(nr * avail < MIN_PANEL_MM - 1e-9 for nr in new_ratios):
-        raise ValueError("adjustment would shrink a sibling below 5 mm")
-    return set_ratios(root, tuple(split_path), tuple(new_ratios))
+    new_root = set_ratios(root, tuple(split_path), tuple(new_ratios))
+    # The direct-children check this used to be (any(nr * avail < MIN...))
+    # only saw the controlling split's immediate children -- a shrunk
+    # DIRECT sibling. It missed panels further down inside a sibling
+    # subtree (e.g. a same-axis split nested under an unresized sibling)
+    # getting squeezed below MIN_PANEL_MM by the ratio change. The shared
+    # flatten guard checks every panel in the whole tree instead.
+    _guard_min_panels(root, new_root, page_w_mm, page_h_mm, gutter_mm)
+    return new_root
