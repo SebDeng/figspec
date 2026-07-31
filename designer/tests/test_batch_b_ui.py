@@ -111,3 +111,39 @@ def test_lint_worker_failure(qtbot, tmp_path):
         worker.start()
     assert blocker.args[0]  # non-empty error message
     worker.wait()
+
+
+def test_lint_dock_populates(qtbot, tmp_path):
+    from figspec.selftest.samples import write_samples
+    win = MainWindow()
+    qtbot.addWidget(win)
+    paths = write_samples(tmp_path / "samples")
+    win._start_lint(str(paths["bad"]))
+    assert not win.lint_action.isEnabled()  # disabled while running
+    qtbot.waitUntil(lambda: win.lint_action.isEnabled(), timeout=20000)
+    dock = win.lint_dock
+    assert dock.findings_tree.topLevelItemCount() > 0
+    assert dock.summary_label.text()  # verdict + counts populated
+
+
+def test_lint_dock_error_path(qtbot, tmp_path):
+    win = MainWindow()
+    qtbot.addWidget(win)
+    bad = tmp_path / "x.pdf"
+    bad.write_bytes(b"nope")
+    win._start_lint(str(bad))
+    qtbot.waitUntil(lambda: win.lint_action.isEnabled(), timeout=20000)
+    assert win.lint_dock.error_label.isVisibleTo(win.lint_dock)
+
+
+def test_relint_button_reruns_lint(qtbot, tmp_path):
+    from figspec.selftest.samples import write_samples
+    win = MainWindow()
+    qtbot.addWidget(win)
+    paths = write_samples(tmp_path / "samples")
+    win._start_lint(str(paths["good"]))
+    qtbot.waitUntil(lambda: win.lint_action.isEnabled(), timeout=20000)
+    first = win.lint_dock.summary_label.text()
+    win.lint_dock.btn_relint.click()
+    qtbot.waitUntil(lambda: win.lint_action.isEnabled(), timeout=20000)
+    assert win.lint_dock.summary_label.text() == first  # same file, same verdict

@@ -18,6 +18,7 @@ from figspec_designer.model import ops
 from figspec_designer.model.history import History
 from figspec_designer.model.tree import iter_panels
 from figspec_designer.ui.canvas import Canvas
+from figspec_designer.ui.lint_dock import LintDock
 from figspec_designer.ui.sidebar import Sidebar
 from figspec_designer.ui.theme import apply_theme
 from figspec_designer.ui.toolbar import TopBar
@@ -72,6 +73,13 @@ class MainWindow(QMainWindow):
         self.sidebar.snippet_copy_requested.connect(self.copy_snippet)
         self.sidebar.asset_remove_requested.connect(self._on_asset_removed)
 
+        self.lint_dock = LintDock(self)
+        self.addDockWidget(Qt.RightDockWidgetArea, self.lint_dock)
+        self.lint_dock.hide()
+        self.lint_dock.relint_requested.connect(self._relint)
+        self._lint_worker = None
+        self._last_lint_path: str | None = None
+
         self._make_menus()
         # Init-time doc/topbar sync only -- NOT _on_settings_changed(),
         # which additionally marks dirty. A freshly-constructed window with
@@ -101,6 +109,7 @@ class MainWindow(QMainWindow):
         act(file_menu, "Copy Placement Table", None, self.copy_placement_table)
         act(file_menu, "Copy matplotlib Snippet", None, self.copy_snippet)
         act(file_menu, "Export Layout Preview…", None, self.export_layout_preview)
+        self.lint_action = act(file_menu, "Lint PDF…", "Ctrl+L", self.lint_pdf)
         edit_menu = self.menuBar().addMenu("Edit")
         act(edit_menu, "Undo", "Ctrl+Z", self.undo)
         act(edit_menu, "Redo", "Ctrl+Shift+Z", self.redo)
@@ -484,6 +493,46 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"Layout preview exported to {path}", 3000)
         else:
             self.statusBar().showMessage(f"Could not write {path}", 3000)
+
+    def lint_pdf(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "Lint a finished PDF", "",
+                                              "PDF (*.pdf)")
+        if path:
+            self._start_lint(path)
+
+    def _relint(self) -> None:
+        if self._last_lint_path:
+            self._start_lint(self._last_lint_path)
+
+    def _start_lint(self, path: str) -> None:
+        from figspec.lint.checks import LintConfig
+        from figspec.units import mm_to_pt
+        from figspec_designer.ui.lint_runner import LintWorker
+        import tempfile
+        self._last_lint_path = path
+        cfg = LintConfig(
+            min_font_pt=self.doc.constraints.min_font_pt,
+            min_linewidth_pt=self.doc.constraints.min_linewidth_pt,
+            width_pt=mm_to_pt(self.doc.target.figure_width_mm))
+        out_dir = tempfile.mkdtemp(prefix="figspec-lint-")
+        self.lint_action.setEnabled(False)
+        self.statusBar().showMessage(f"Linting {path}…")
+        self.lint_dock.show_running(path)
+        self.lint_dock.show()
+        self._lint_worker = LintWorker(path, cfg, out_dir, parent=self)
+        self._lint_worker.finished_ok.connect(self._on_lint_done)
+        self._lint_worker.failed.connect(self._on_lint_failed)
+        self._lint_worker.start()
+
+    def _on_lint_done(self, report: dict, annotated: list) -> None:
+        self.lint_action.setEnabled(True)
+        self.statusBar().showMessage("Lint finished", 3000)
+        self.lint_dock.show_report(report, annotated)
+
+    def _on_lint_failed(self, message: str) -> None:
+        self.lint_action.setEnabled(True)
+        self.statusBar().showMessage("Lint failed", 3000)
+        self.lint_dock.show_error(message)
 
     def save_json(self, path) -> None:
         Path(path).write_text(self.doc.to_json(base_dir=Path(path).parent))

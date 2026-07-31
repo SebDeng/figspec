@@ -83,6 +83,9 @@ QLineEdit#hintEdit:disabled {{ border-bottom-color: {HAIRLINE}; color: {INK_MUTE
 QLabel#dpiValue[level="ok"] {{ color: {DPI_OK}; font-weight: 600; }}
 QLabel#dpiValue[level="warn"] {{ color: {DPI_WARN}; font-weight: 600; }}
 QLabel#dpiValue[level="bad"] {{ color: {DPI_BAD}; font-weight: 600; }}
+
+QLabel#lintError {{ color: {DPI_BAD}; }}
+QLabel#lintSummary {{ font-weight: 600; }}
 """
 
 
