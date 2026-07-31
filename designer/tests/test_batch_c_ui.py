@@ -140,6 +140,29 @@ def test_open_save_as_different_dir_keeps_asset_linked(qtbot, tmp_path, monkeypa
     assert widget.property("assetMissing") is False
 
 
+def test_thumbnail_does_not_cover_selection_border(qtbot):
+    # Regression: paintEvent scaled the thumb to the full widget rect with
+    # no inset, so a thumbnail whose aspect matches the panel's covered the
+    # 2px ink selection ring entirely on the image-filled axis.
+    from PySide6.QtGui import QColor, QPixmap
+    from figspec_designer.ui import theme
+    from figspec_designer.ui.panel_widget import PanelWidget
+
+    theme.apply_theme(QApplication.instance())
+    w = PanelWidget("p1", "a")
+    qtbot.addWidget(w)
+    w.resize(200, 100)  # same 2:1 aspect as the thumb below
+    w.setProperty("selected", True)
+    theme.repolish(w)
+    thumb = QPixmap(400, 200)
+    thumb.fill(QColor(0, 255, 0))
+    w._thumb = thumb
+
+    img = w.grab().toImage()
+    top_center = img.pixelColor(w.width() // 2, 0)
+    assert top_center == QColor(theme.INK)
+
+
 def test_sidebar_asset_block_and_dpi_light(qtbot, tmp_path):
     win = MainWindow()
     qtbot.addWidget(win)

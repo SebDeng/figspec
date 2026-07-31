@@ -134,14 +134,22 @@ class PanelWidget(QFrame):
                 self.panel_id, event.mimeData().urls()[0].toLocalFile())
             event.acceptProposedAction()
 
+    # 2px selected/swap-armed border + 1px breathing room -- scaling the
+    # thumb to the FULL widget rect let it paint over that border whenever
+    # the image's aspect matched the panel's (see paintEvent).
+    _THUMB_INSET_PX = 3
+
     def paintEvent(self, event) -> None:
         super().paintEvent(event)  # QSS card background/border first
         if self._thumb is None or self._thumb.isNull():
             return
+        from PySide6.QtCore import QSize
         from PySide6.QtGui import QPainter
-        scaled = self._thumb.scaled(self.size(), Qt.KeepAspectRatio,
+        inset = self._THUMB_INSET_PX
+        target = self.size() - QSize(2 * inset, 2 * inset)
+        scaled = self._thumb.scaled(target, Qt.KeepAspectRatio,
                                     Qt.SmoothTransformation)
         painter = QPainter(self)
-        painter.drawPixmap((self.width() - scaled.width()) // 2,
-                           (self.height() - scaled.height()) // 2, scaled)
+        painter.drawPixmap(inset + (target.width() - scaled.width()) // 2,
+                           inset + (target.height() - scaled.height()) // 2, scaled)
         painter.end()
