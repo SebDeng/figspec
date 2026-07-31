@@ -112,6 +112,12 @@ def test_sidebar_asset_block_and_dpi_light(qtbot, tmp_path):
     # default panel 183x100mm: eff dpi = min(400/7.2in, 300/3.94in) ~ 55 -> red
     assert sb.lbl_asset_dpi.property("level") == "bad"
     assert "dpi" in sb.lbl_asset_dpi.text()
+    # File/Pixels rows must share the same styled-value objectName as the
+    # rest of the sidebar's value labels; the DPI label keeps its own
+    # level-colored name instead.
+    assert sb.lbl_asset_name.objectName() == "fieldValue"
+    assert sb.lbl_asset_px.objectName() == "fieldValue"
+    assert sb.lbl_asset_dpi.objectName() == "dpiValue"
 
 
 def test_sidebar_remove_asset(qtbot, tmp_path):

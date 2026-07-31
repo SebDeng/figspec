@@ -141,6 +141,8 @@ class Sidebar(QWidget):
         asset_grid.setSpacing(8)
         self.lbl_asset_name = QLabel("—")
         self.lbl_asset_px = QLabel("—")
+        self.lbl_asset_name.setObjectName("fieldValue")
+        self.lbl_asset_px.setObjectName("fieldValue")
         self.lbl_asset_dpi = QLabel("—")
         self.lbl_asset_dpi.setObjectName("dpiValue")
         for row, (text, widget) in enumerate([("File", self.lbl_asset_name),
