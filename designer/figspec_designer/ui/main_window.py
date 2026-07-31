@@ -166,8 +166,8 @@ class MainWindow(QMainWindow):
         limit = presets.MAX_HEIGHT_MM.get(self.doc.target.journal_preset)
         height = self.doc.target.figure_height_mm
         over = limit is not None and height > limit
-        tip = (f"Exceeds {self.doc.target.journal_preset} max height "
-               f"{limit:g} mm (see docs/journal-figure-specs.md)") if over else ""
+        tip = (f"Exceeds {self.doc.target.journal_preset} maximum height of "
+               f"{limit:g} mm (publisher figure guidelines)") if over else ""
         self.topbar.set_height_over_limit(over, tip)
 
     def _asset_base_dir(self) -> Path | None:

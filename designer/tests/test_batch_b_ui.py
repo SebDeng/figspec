@@ -26,6 +26,17 @@ def test_height_warning_flips_property(qtbot):
     assert spin.toolTip() == ""
 
 
+def test_height_warning_tooltip_has_no_repo_path(qtbot):
+    win = MainWindow()
+    qtbot.addWidget(win)
+    spin = win.topbar.height_spin
+    spin.setValue(180.0)  # nature_double limit 170
+    tip = spin.toolTip()
+    assert "170" in tip
+    assert "docs/" not in tip
+    assert "publisher figure guidelines" in tip
+
+
 def test_no_warning_for_custom_or_aps(qtbot):
     win = MainWindow()
     qtbot.addWidget(win)
