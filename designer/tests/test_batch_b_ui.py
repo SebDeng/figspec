@@ -136,6 +136,20 @@ def test_lint_dock_error_path(qtbot, tmp_path):
     assert win.lint_dock.error_label.isVisibleTo(win.lint_dock)
 
 
+def test_close_during_running_lint_no_crash(qtbot, tmp_path):
+    from figspec.selftest.samples import write_samples
+    win = MainWindow()
+    qtbot.addWidget(win)
+    paths = write_samples(tmp_path / "samples")
+    win._start_lint(str(paths["bad"]))
+    # Worker is very likely still running here (just started); close() must
+    # wait it out rather than let Qt destroy a running QThread (qFatal ->
+    # SIGABRT, exit 134). qtbot.addWidget's own teardown close() would hit
+    # this too if we didn't force it explicitly.
+    win.close()
+    assert win._lint_worker.isRunning() is False
+
+
 def test_relint_button_reruns_lint(qtbot, tmp_path):
     from figspec.selftest.samples import write_samples
     win = MainWindow()

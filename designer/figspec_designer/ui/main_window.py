@@ -709,6 +709,13 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:
         if self.confirm_discard():
+            if self._lint_worker is not None and self._lint_worker.isRunning():
+                # Finite work (one PDF lint); waiting beats a qFatal teardown
+                # (Qt aborts the process if a running QThread is destroyed
+                # out from under it -- see LintWorker, parented to self).
+                self._lint_worker.finished_ok.disconnect()
+                self._lint_worker.failed.disconnect()
+                self._lint_worker.wait()
             event.accept()
         else:
             event.ignore()
