@@ -53,7 +53,7 @@ class MainWindow(QMainWindow):
         self.sidebar.content_hint_edited.connect(self._on_hint_edited)
 
         self._make_menus()
-        self.refresh()
+        self._on_settings_changed()
 
     # ---- menus ------------------------------------------------------
     def _make_menus(self) -> None:

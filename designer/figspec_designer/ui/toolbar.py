@@ -3,10 +3,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QHBoxLayout, QLabel,
                                QPushButton, QSpinBox, QWidget)
-from figspec.spec import Constraints
 from figspec_designer import presets
-
-_DEFAULT_CONSTRAINTS = Constraints()
 
 
 class TopBar(QWidget):
@@ -79,12 +76,13 @@ class TopBar(QWidget):
         for b in (self.btn_open, self.btn_save, self.btn_copy):
             lay.addWidget(b)
 
+        _nd_constraints = presets.PRESET_CONSTRAINTS["nature_double"]
         self.set_values("nature_double", presets.PRESETS["nature_double"],
                         presets.DEFAULT_HEIGHT_MM, presets.DEFAULT_DPI,
                         presets.DEFAULT_GUTTER_MM,
-                        _DEFAULT_CONSTRAINTS.min_font_pt,
-                        _DEFAULT_CONSTRAINTS.max_font_pt,
-                        _DEFAULT_CONSTRAINTS.min_linewidth_pt)
+                        _nd_constraints["min_font_pt"],
+                        _nd_constraints["max_font_pt"],
+                        _nd_constraints["min_linewidth_pt"])
 
         self.preset_combo.currentTextChanged.connect(self._on_preset)
         for spin in (self.width_spin, self.height_spin, self.gutter_spin,
@@ -97,9 +95,17 @@ class TopBar(QWidget):
 
     def _on_preset(self, key: str) -> None:
         if key in presets.PRESETS:
-            self.width_spin.blockSignals(True)
+            spins = (self.width_spin, self.min_font_spin,
+                     self.max_font_spin, self.min_lw_spin)
+            for s in spins:
+                s.blockSignals(True)
             self.width_spin.setValue(presets.PRESETS[key])
-            self.width_spin.blockSignals(False)
+            c = presets.PRESET_CONSTRAINTS[key]
+            self.min_font_spin.setValue(c["min_font_pt"])
+            self.max_font_spin.setValue(c["max_font_pt"])
+            self.min_lw_spin.setValue(c["min_linewidth_pt"])
+            for s in spins:
+                s.blockSignals(False)
             self.width_spin.setEnabled(False)
         else:
             self.width_spin.setEnabled(True)

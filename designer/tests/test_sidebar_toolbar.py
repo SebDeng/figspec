@@ -81,11 +81,11 @@ def test_flush_pending_noop_when_no_panel_shown(qtbot):
 def test_topbar_constraint_spin_defaults():
     tb = TopBar()
     assert tb.min_font_spin.value() == pytest.approx(5.0)
-    assert tb.max_font_spin.value() == pytest.approx(8.0)
-    assert tb.min_lw_spin.value() == pytest.approx(0.5)
+    assert tb.max_font_spin.value() == pytest.approx(7.0)
+    assert tb.min_lw_spin.value() == pytest.approx(0.25)
     vals = tb.values()
     assert len(vals) == 8
-    assert vals[5:8] == pytest.approx((5.0, 8.0, 0.5))
+    assert vals[5:8] == pytest.approx((5.0, 7.0, 0.25))
 
 
 def test_topbar_constraint_spin_changes_emit_settings_changed(qtbot):
@@ -126,3 +126,38 @@ def test_all_presets_have_constraints():
         "min_font_pt": 5.0, "max_font_pt": 7.0, "min_linewidth_pt": 0.25}
     assert presets.PRESET_CONSTRAINTS["acs_double"]["min_font_pt"] == 4.5
     assert presets.PRESET_CONSTRAINTS["aps_single"]["min_font_pt"] == 8.0
+
+
+# ---- Task 2: TopBar preset -> constraints wiring ---------------------------
+
+def test_preset_applies_constraints(qtbot):
+    from figspec_designer.ui.toolbar import TopBar
+    tb = TopBar()
+    qtbot.addWidget(tb)
+    got = []
+    tb.settings_changed.connect(lambda: got.append(1))
+    tb.preset_combo.setCurrentText("acs_single")
+    assert tb.values()[1] == 84.7
+    assert tb.min_font_spin.value() == 4.5
+    assert tb.max_font_spin.value() == 8.0
+    assert tb.min_lw_spin.value() == 0.5
+    assert len(got) == 1  # ONE settings_changed for the whole batch
+
+
+def test_custom_preserves_constraints(qtbot):
+    from figspec_designer.ui.toolbar import TopBar
+    tb = TopBar()
+    qtbot.addWidget(tb)
+    tb.preset_combo.setCurrentText("acs_single")
+    tb.preset_combo.setCurrentText("custom")
+    assert tb.min_font_spin.value() == 4.5  # untouched
+    assert tb.width_spin.isEnabled()
+
+
+def test_mainwindow_initial_constraints_match_preset(qtbot):
+    from figspec_designer.ui.main_window import MainWindow
+    win = MainWindow()
+    qtbot.addWidget(win)
+    assert win.doc.constraints.min_font_pt == 5.0
+    assert win.doc.constraints.max_font_pt == 7.0   # nature_double preset
+    assert win.doc.constraints.min_linewidth_pt == 0.25
