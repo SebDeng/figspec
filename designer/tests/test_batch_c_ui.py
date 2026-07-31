@@ -143,3 +143,30 @@ def test_dpi_levels(qtbot, tmp_path):
     win._push_tree(ops.set_asset(win.doc.tree, pid, str(png), (8000, 5000)))
     win.do_action("select", pid)
     assert win.sidebar.lbl_asset_dpi.property("level") == "ok"
+
+
+def test_render_layout_png(qtbot, tmp_path):
+    win = MainWindow()
+    qtbot.addWidget(win)
+    pid = next(iter_panels(win.doc.tree)).id
+    win.do_action("split_right", pid)
+    out = tmp_path / "layout.png"
+    from figspec_designer.ui.preview_export import render_layout_png
+    render_layout_png(win.doc, out)
+    assert out.exists() and out.stat().st_size > 0
+    from PySide6.QtGui import QImage
+    img = QImage(str(out))
+    # 183mm page at 4 px/mm * scale 2 = 1464 px wide, page + footer tall
+    assert img.width() == round(183.0 * 8)
+    assert img.height() > round(100.0 * 8)
+
+
+def test_render_layout_image_standalone_tree(qtbot):
+    from figspec.templates import TEMPLATES
+    from figspec.spec import Target
+    from figspec_designer.ui.preview_export import render_layout_image
+    img = render_layout_image(TEMPLATES["hero_left"].build(),
+                              Target("nature_double", 183.0, 100.0),
+                              scale=1)
+    assert not img.isNull()
+    assert img.width() == round(183.0 * 4)

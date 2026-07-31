@@ -94,6 +94,7 @@ class MainWindow(QMainWindow):
         act(file_menu, "Copy JSON", "Ctrl+Shift+C", self.copy_json)
         act(file_menu, "Copy Placement Table", None, self.copy_placement_table)
         act(file_menu, "Copy matplotlib Snippet", None, self.copy_snippet)
+        act(file_menu, "Export Layout Preview…", None, self.export_layout_preview)
         edit_menu = self.menuBar().addMenu("Edit")
         act(edit_menu, "Undo", "Ctrl+Z", self.undo)
         act(edit_menu, "Redo", "Ctrl+Shift+Z", self.redo)
@@ -446,6 +447,15 @@ class MainWindow(QMainWindow):
         QApplication.clipboard().setText(
             generate_snippet(self.doc.to_spec_dict(), name))
         self.statusBar().showMessage("matplotlib snippet copied", 3000)
+
+    def export_layout_preview(self) -> None:
+        from figspec_designer.ui.preview_export import render_layout_png
+        path, _ = QFileDialog.getSaveFileName(self, "Export layout preview",
+                                              "layout.png", "PNG image (*.png)")
+        if not path:
+            return
+        render_layout_png(self.doc, path)
+        self.statusBar().showMessage(f"Layout preview exported to {path}", 3000)
 
     def save_json(self, path) -> None:
         Path(path).write_text(self.doc.to_json(base_dir=Path(path).parent))
