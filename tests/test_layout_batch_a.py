@@ -37,8 +37,12 @@ def test_split_n_min_size_guard():
     # 183mm page: 12-way... n max is 8; craft narrow: wrap A(10mm wide) — parent
     root = SplitNode("row", (10 / 179, 169 / 179), (A, B))  # A ~10mm on 183/4 page
     with pytest.raises(ValueError):
-        # A is ~10mm; splitting into 8 → ~0.7mm children
-        split_panel_n(root, "A", "right", 8)
+        # A is ~10mm; splitting into 8 → real children well under MIN_PANEL_MM
+        split_panel_n(root, "A", "right", 8,
+                      page_w_mm=183.0, page_h_mm=100.0, gutter_mm=4.0)
+    # Structure-only mode (no page dims given) skips the size guard entirely.
+    out = split_panel_n(root, "A", "right", 8)
+    assert len(out.children) == 9
 
 
 def test_equalize_siblings():

@@ -1,29 +1,12 @@
 """Pure tree operations. Every function returns a new tree."""
 from __future__ import annotations
 from dataclasses import replace
+from figspec.layout.flatten import flatten
 from figspec.layout.tree import Node, PanelNode, SplitNode, iter_panels, new_panel
 
 _ORIENT = {"right": "row", "down": "column"}
 
 MIN_PANEL_MM = 5.0
-
-# split_panel_n has no page-geometry parameters (see its signature below), so its
-# MIN_PANEL_MM guard cannot know the real avail space at the target's depth. It
-# uses this reference page instead -- the same nature_double-preset geometry
-# (183 x 100 mm, 4 mm gutter) that DesignerDocument.default() and this test
-# suite's own defaults use -- as a conservative, consistent sizing check.
-_GUARD_PAGE_W_MM = 183.0
-_GUARD_PAGE_H_MM = 100.0
-_GUARD_GUTTER_MM = 4.0
-
-
-def _guard_split_ratios(orient: str, ratios: tuple[float, ...]) -> None:
-    n = len(ratios)
-    extent = _GUARD_PAGE_W_MM if orient == "row" else _GUARD_PAGE_H_MM
-    avail = extent - (n - 1) * _GUARD_GUTTER_MM
-    if any(r * avail < MIN_PANEL_MM - 1e-9 for r in ratios):
-        raise ValueError(
-            f"splitting into {n} would shrink a panel below {MIN_PANEL_MM:g} mm")
 
 
 def split_panel(root: Node, panel_id: str, direction: str) -> Node:
@@ -153,28 +136,39 @@ def snap_ratios(ratios, avail_mm: float, step: float = 0.5) -> tuple[float, ...]
     return tuple(s / avail_mm for s in snapped)
 
 
-def split_panel_n(root: Node, panel_id: str, direction: str, n: int) -> Node:
+def split_panel_n(root: Node, panel_id: str, direction: str, n: int, *,
+                  page_w_mm: float | None = None, page_h_mm: float | None = None,
+                  gutter_mm: float | None = None) -> Node:
+    """Split panel_id into n children along direction (inline on a matching-
+    orientation parent, wrapped otherwise); when page_w_mm, page_h_mm and
+    gutter_mm are all given, the resulting children's real on-page rects are
+    checked against MIN_PANEL_MM (ValueError if any is too small), otherwise the
+    split is structure-only (ratio-space) with no size guard.
+    """
     if not 2 <= n <= 8:
         raise ValueError(f"n must be between 2 and 8, got {n}")
     if direction not in _ORIENT:
         raise ValueError(f"direction must be right|down, got {direction!r}")
     orient = _ORIENT[direction]
+    new_ids: list[str] = []
 
     def rec(node: Node) -> Node:
         if isinstance(node, PanelNode):
             if node.id != panel_id:
                 return node
             ratios = tuple(1.0 / n for _ in range(n))
-            _guard_split_ratios(orient, ratios)
-            children = (node,) + tuple(new_panel() for _ in range(n - 1))
-            return SplitNode(orient, ratios, children)
+            new_children = tuple(new_panel() for _ in range(n - 1))
+            new_ids.extend(c.id for c in new_children)
+            return SplitNode(orient, ratios, (node,) + new_children)
         children: list[Node] = []
         ratios: list[float] = []
         for child, ratio in zip(node.children, node.ratios):
             if (isinstance(child, PanelNode) and child.id == panel_id
                     and node.orientation == orient):
+                new_children = tuple(new_panel() for _ in range(n - 1))
+                new_ids.extend(c.id for c in new_children)
                 children.append(child)
-                children.extend(new_panel() for _ in range(n - 1))
+                children.extend(new_children)
                 ratios.extend([ratio / n] * n)
             else:
                 children.append(rec(child))
@@ -182,13 +176,21 @@ def split_panel_n(root: Node, panel_id: str, direction: str, n: int) -> Node:
         if len(children) == len(node.children) and \
                 all(a is b for a, b in zip(children, node.children)):
             return node
-        if len(children) != len(node.children):
-            _guard_split_ratios(node.orientation, tuple(ratios))
         return SplitNode(node.orientation, tuple(ratios), tuple(children))
 
     out = rec(root)
     if out is root:
         raise KeyError(panel_id)
+
+    if page_w_mm is not None and page_h_mm is not None and gutter_mm is not None:
+        rects = {r.panel_id: r for r in flatten(out, page_w_mm, page_h_mm, gutter_mm)}
+        for pid in (panel_id, *new_ids):
+            size = rects[pid].w_mm if orient == "row" else rects[pid].h_mm
+            if size < MIN_PANEL_MM - 1e-9:
+                raise ValueError(
+                    f"splitting into {n} would shrink a panel below "
+                    f"{MIN_PANEL_MM:g} mm")
+
     return out
 
 
