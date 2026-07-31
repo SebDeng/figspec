@@ -85,7 +85,7 @@ class MainWindow(QMainWindow):
         act(file_menu, "Open…", "Ctrl+O", self._open_dialog)
         self.recent_menu = file_menu.addMenu("Open Recent")
         self.recent_menu.aboutToShow.connect(self._rebuild_recent_menu)
-        act(file_menu, "Save JSON…", "Ctrl+S", self.save)
+        act(file_menu, "Save JSON", "Ctrl+S", self.save)
         act(file_menu, "Save As…", "Ctrl+Shift+S", self.save_as)
         act(file_menu, "Copy JSON", "Ctrl+Shift+C", self.copy_json)
         act(file_menu, "Copy Placement Table", None, self.copy_placement_table)

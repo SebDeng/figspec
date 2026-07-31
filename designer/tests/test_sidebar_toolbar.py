@@ -1,6 +1,6 @@
 import pytest
 from figspec_designer.model.flatten import PanelRect
-from figspec_designer.ui.sidebar import Sidebar
+from figspec_designer.ui.sidebar import Sidebar, _aspect_text
 from figspec_designer.ui.toolbar import TopBar
 
 
@@ -75,6 +75,57 @@ def test_flush_pending_noop_when_no_panel_shown(qtbot):
     sb.hint_edit.setText("stray text")
     sb.flush_pending()
     assert got == []
+
+
+# ---- Minor 4: no-op Enter in hint field must not spuriously emit ----------
+
+def test_emit_hint_noop_when_unchanged(qtbot):
+    sb = Sidebar()
+    qtbot.addWidget(sb)
+    sb.show_panel("p1", "a", PanelRect("p1", 0.0, 0.0, 10.0, 10.0), 300, "orig")
+    got = []
+    sb.content_hint_edited.connect(lambda pid, t: got.append((pid, t)))
+    sb.hint_edit.editingFinished.emit()  # no text change -- e.g. plain Enter
+    assert got == []
+    sb.hint_edit.setText("changed")
+    sb.hint_edit.editingFinished.emit()
+    assert got == [("p1", "changed")]
+    sb.hint_edit.editingFinished.emit()  # confirming again with no further change
+    assert got == [("p1", "changed")]  # must NOT re-emit
+
+
+# ---- Minor 5: reduced w:h fraction alongside the decimal aspect ----------
+
+def test_aspect_text_reduces_to_small_integer_ratio():
+    assert _aspect_text(89.5, 89.5) == "1:1 · 1.000:1"
+    assert _aspect_text(120.0, 80.0) == "3:2 · 1.500:1"
+
+
+def test_aspect_text_falls_back_to_decimal_when_reduction_is_large():
+    text = _aspect_text(91.3, 58.7)
+    assert "·" not in text
+    assert text.endswith(":1")
+
+
+def test_sidebar_shows_reduced_aspect_fraction(qtbot):
+    sb = Sidebar()
+    qtbot.addWidget(sb)
+    sb.show_panel("p1", "b", PanelRect("p1", 0.0, 0.0, 120.0, 80.0), 300, "")
+    assert sb.lbl_aspect.text() == "3:2 · 1.500:1"
+
+
+# ---- Minor 7: aspect lock uses exact shown values, not 1dp spinboxes ------
+
+def test_aspect_lock_uses_exact_shown_values_not_rounded_spinboxes(qtbot):
+    sb = Sidebar()
+    qtbot.addWidget(sb)
+    sb.show_panel("p1", "a", PanelRect("p1", 0.0, 0.0, 91.333, 47.111), 300, "")
+    got = []
+    sb.aspect_lock_toggled.connect(lambda pid, v: got.append(v))
+    sb.chk_aspect_lock.setChecked(True)
+    assert got == [91.333 / 47.111]
+    sb.chk_aspect_lock.setChecked(False)
+    assert got[-1] is None
 
 
 # ---- F5: constraints spinboxes on TopBar ----------------------------------

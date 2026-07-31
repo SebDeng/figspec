@@ -148,6 +148,18 @@ def test_open_with_malformed_tree_reports_error(qtbot, tmp_path):
     assert len(list(iter_panels(win.doc.tree))) >= 1
 
 
+# ---- Minor 8: "Save JSON…" no longer promises a dialog it doesn't show ---
+
+def test_save_menu_label_has_no_ellipsis(qtbot):
+    from PySide6.QtGui import QAction
+    win = MainWindow()
+    qtbot.addWidget(win)
+    texts = {a.text() for a in win.findChildren(QAction)}
+    assert "Save JSON" in texts
+    assert "Save JSON…" not in texts
+    assert "Save As…" in texts  # unchanged -- it does show a dialog
+
+
 def test_smoke_flag():
     from figspec_designer.app import main
     assert main(["--smoke"]) == 0

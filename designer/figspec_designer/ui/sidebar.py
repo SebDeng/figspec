@@ -1,10 +1,28 @@
 """Selected-panel inspector: label, position, size, aspect, content hint."""
 from __future__ import annotations
+import math
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QCheckBox, QDoubleSpinBox, QGridLayout, QHBoxLayout,
                                QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget)
 from figspec_designer.model.flatten import PanelRect, derive
 from figspec_designer.ui.theme import smallcaps_font
+
+
+def _aspect_text(w_mm: float, h_mm: float) -> str:
+    """"N:M · 1.554:1" when the reduced integer ratio (at 0.1mm precision)
+    has both terms <= 60 (spec A2: 约分显示 + 小数); otherwise just the
+    decimal form, since a reduced fraction with a large numerator/
+    denominator isn't a meaningful "nice ratio" to show."""
+    ratio = w_mm / h_mm if h_mm else 0.0
+    decimal = f"{ratio:.3f}:1"
+    w10, h10 = round(w_mm * 10), round(h_mm * 10)
+    if w10 <= 0 or h10 <= 0:
+        return decimal
+    g = math.gcd(w10, h10)
+    n, m = w10 // g, h10 // g
+    if n <= 60 and m <= 60:
+        return f"{n}:{m} · {decimal}"
+    return decimal
 
 
 class Sidebar(QWidget):
@@ -119,9 +137,13 @@ class Sidebar(QWidget):
         self.btn_copy_placement.clicked.connect(self.placement_copy_requested.emit)
 
     def _emit_hint(self) -> None:
-        if self._panel_id is not None:
-            self.content_hint_edited.emit(self._panel_id, self.hint_edit.text())
-            self._last_hint = self.hint_edit.text()
+        if self._panel_id is None:
+            return
+        text = self.hint_edit.text()
+        if text == self._last_hint:
+            return  # unchanged -- no spurious emit/dirty/undo entry (mirrors flush_pending)
+        self.content_hint_edited.emit(self._panel_id, text)
+        self._last_hint = text
 
     def _emit_size(self, axis: str) -> None:
         if self._panel_id is None:
@@ -149,7 +171,12 @@ class Sidebar(QWidget):
     def _emit_aspect_lock(self, checked: bool) -> None:
         if self._panel_id is None:
             return
-        value = (self.spin_w.value() / self.spin_h.value()) if checked else None
+        # Use the exact shown rect values, not the 1dp-rounded spinboxes --
+        # spin_w/spin_h.value() would lock in a ratio that's already off
+        # from the panel's real aspect by the rounding error.
+        value = None
+        if checked and self._shown_w is not None and self._shown_h:
+            value = self._shown_w / self._shown_h
         self.aspect_lock_toggled.emit(self._panel_id, value)
 
     def flush_pending(self) -> None:
@@ -172,8 +199,7 @@ class Sidebar(QWidget):
         w_px, h_px, figsize = derive(rect, dpi)
         self.lbl_label.setText(label)
         self.lbl_xy.setText(f"{rect.x_mm:.1f}, {rect.y_mm:.1f} mm")
-        ratio = rect.w_mm / rect.h_mm if rect.h_mm else 0.0
-        self.lbl_aspect.setText(f"{ratio:.3f}:1")
+        self.lbl_aspect.setText(_aspect_text(rect.w_mm, rect.h_mm))
         self.lbl_px.setText(f"{w_px} × {h_px} @ {dpi} dpi")
         self.lbl_figsize.setText(f"({figsize[0]:.3f}, {figsize[1]:.3f})")
 
