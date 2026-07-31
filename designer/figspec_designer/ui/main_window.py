@@ -173,6 +173,18 @@ class MainWindow(QMainWindow):
     def _asset_base_dir(self) -> Path | None:
         return self.current_path.parent if self.current_path else None
 
+    # Qt substitutes ~3780 dots/meter (96.01 dpi) when a file carries no
+    # resolution metadata -- a real 96 dpi pHYs is indistinguishable from
+    # that fallback, so both are treated as "assumed", never "declared".
+    _QT_DEFAULT_DPM = 3780
+
+    def _read_asset_dpi(self, file_path: str) -> float | None:
+        from PySide6.QtGui import QImage
+        dpm = QImage(file_path).dotsPerMeterX()
+        if dpm <= 0 or abs(dpm - self._QT_DEFAULT_DPM) <= 2:
+            return None
+        return dpm * 0.0254
+
     def _on_asset_dropped(self, panel_id: str, file_path: str) -> None:
         from PySide6.QtGui import QImageReader
         size = QImageReader(file_path).size()
@@ -181,7 +193,8 @@ class MainWindow(QMainWindow):
             return
         try:
             self._push_tree(ops.set_asset(self.doc.tree, panel_id, file_path,
-                                          (size.width(), size.height())))
+                                          (size.width(), size.height()),
+                                          asset_dpi=self._read_asset_dpi(file_path)))
         except KeyError:
             self.statusBar().showMessage("Panel no longer exists", 3000)
 
