@@ -79,3 +79,35 @@ def test_wireframe_export_uses_label_style(qtbot, tmp_path):
     # error and the file is written (letter correctness is pinned by the
     # canvas/sidebar assertions above via the same format_label call)
     assert out.stat().st_size > 0
+
+
+def test_lint_worker_success(qtbot, tmp_path):
+    from figspec.selftest.samples import write_samples
+    from figspec.lint.checks import LintConfig
+    from figspec.units import mm_to_pt
+    from figspec_designer.ui.lint_runner import LintWorker
+    paths = write_samples(tmp_path / "samples")
+    cfg = LintConfig(min_font_pt=5.0, min_linewidth_pt=0.25,
+                     width_pt=mm_to_pt(183.0))
+    worker = LintWorker(str(paths["bad"]), cfg, tmp_path / "out")
+    with qtbot.waitSignal(worker.finished_ok, timeout=15000) as blocker:
+        worker.start()
+    report, annotated = blocker.args
+    # render_json shape: summary = {"ready": bool, "strict": bool,
+    # "counts": {"PASS": n, "WARN": n, "FAIL": n}}; findings list of dicts
+    assert set(report["summary"]["counts"]) == {"PASS", "WARN", "FAIL"}
+    assert report["findings"] and "check_id" in report["findings"][0]
+    assert isinstance(annotated, list)
+    worker.wait()
+
+
+def test_lint_worker_failure(qtbot, tmp_path):
+    from figspec.lint.checks import LintConfig
+    from figspec_designer.ui.lint_runner import LintWorker
+    not_pdf = tmp_path / "x.pdf"
+    not_pdf.write_bytes(b"not a pdf")
+    worker = LintWorker(str(not_pdf), LintConfig(), tmp_path / "out")
+    with qtbot.waitSignal(worker.failed, timeout=15000) as blocker:
+        worker.start()
+    assert blocker.args[0]  # non-empty error message
+    worker.wait()
