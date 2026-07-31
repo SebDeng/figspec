@@ -170,3 +170,95 @@ def test_render_layout_image_standalone_tree(qtbot):
                               scale=1)
     assert not img.isNull()
     assert img.width() == round(183.0 * 4)
+
+
+def test_fits_predicate_narrow_vs_wide(qtbot):
+    # Unit check of the width/height predicate used to decide whether an
+    # annotation is drawn at all — a narrow rect should reject a normal
+    # label, a generously sized one should accept it.
+    from PySide6.QtCore import QRectF
+    from PySide6.QtGui import QFont, QFontMetrics
+    from figspec_designer.ui.preview_export import _fits
+    fm = QFontMetrics(QFont())
+    text = "0.5 × 100.0 mm"
+    tiny_rect = QRectF(0, 0, 5, 20)
+    big_rect = QRectF(0, 0, 400, 40)
+    assert not _fits(fm, text, tiny_rect, margin_px=4)
+    assert _fits(fm, text, big_rect, margin_px=4)
+
+
+def test_narrow_panel_renders_without_text_bleed(qtbot):
+    # Regression: a sub-3mm-wide panel used to have its letter/mm-size
+    # annotation drawn unclipped, bleeding ink past its own frame line.
+    # With the fits() skip-logic, no dark (letter-colored) ink should
+    # appear anywhere within — or just past — such a narrow panel's column.
+    from figspec.layout.tree import PanelNode, SplitNode
+    from figspec.layout.flatten import flatten
+    from figspec.spec import Target
+    from figspec_designer.ui.preview_export import render_layout_image, PX_PER_MM
+
+    tree = SplitNode("row", (0.01, 0.99),
+                     (PanelNode(id="narrow"), PanelNode(id="wide")))
+    target = Target("nature_double", 183.0, 100.0)
+    scale = 2
+    img = render_layout_image(tree, target, scale=scale)
+    assert not img.isNull()
+    # smoke: page stays within the expected pixel bounds
+    assert img.width() == round(target.figure_width_mm * PX_PER_MM * scale)
+    assert img.height() >= round(target.figure_height_mm * PX_PER_MM * scale)
+
+    ppm = PX_PER_MM * scale
+    rects = {r.panel_id: r for r in flatten(
+        tree, target.figure_width_mm, target.figure_height_mm, target.gutter_mm)}
+    narrow = rects["narrow"]
+    x0 = round(narrow.x_mm * ppm)
+    x1 = max(x0 + 1, round((narrow.x_mm + narrow.w_mm) * ppm))
+    y0 = round(narrow.y_mm * ppm)
+    y1 = min(round((narrow.y_mm + narrow.h_mm) * ppm), y0 + 60)  # top strip only
+
+    # Letter ink is near-black; frame strokes and page background are much
+    # lighter. If the skip-logic failed, the letter/mm text would paint
+    # dark pixels across this narrow panel's column.
+    for x in range(x0, x1):
+        for y in range(y0, y1):
+            assert img.pixelColor(x, y).lightness() >= 100
+
+
+def test_render_layout_png_returns_bool(qtbot, tmp_path):
+    win = MainWindow()
+    qtbot.addWidget(win)
+    from figspec_designer.ui.preview_export import render_layout_png
+    ok_path = tmp_path / "layout.png"
+    assert render_layout_png(win.doc, ok_path) is True
+    assert ok_path.exists()
+
+    bad_path = tmp_path / "missing_dir" / "layout.png"
+    assert render_layout_png(win.doc, bad_path) is False
+    assert not bad_path.exists()
+
+
+def test_export_layout_preview_appends_png_suffix_and_reports_success(
+        qtbot, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QFileDialog
+    win = MainWindow()
+    qtbot.addWidget(win)
+    chosen = str(tmp_path / "layout")  # no suffix typed by the user
+    monkeypatch.setattr(QFileDialog, "getSaveFileName",
+                        staticmethod(lambda *a, **k: (chosen, "")))
+    win.export_layout_preview()
+    out = tmp_path / "layout.png"
+    assert out.exists() and out.stat().st_size > 0
+    assert win.statusBar().currentMessage() == f"Layout preview exported to {out}"
+
+
+def test_export_layout_preview_write_failure_reports_status_no_crash(
+        qtbot, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QFileDialog
+    win = MainWindow()
+    qtbot.addWidget(win)
+    bad = tmp_path / "does_not_exist" / "layout.png"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName",
+                        staticmethod(lambda *a, **k: (str(bad), "")))
+    win.export_layout_preview()  # must not raise
+    assert win.statusBar().currentMessage() == f"Could not write {bad}"
+    assert not bad.exists()

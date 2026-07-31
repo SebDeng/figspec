@@ -454,8 +454,12 @@ class MainWindow(QMainWindow):
                                               "layout.png", "PNG image (*.png)")
         if not path:
             return
-        render_layout_png(self.doc, path)
-        self.statusBar().showMessage(f"Layout preview exported to {path}", 3000)
+        if not Path(path).suffix:
+            path += ".png"
+        if render_layout_png(self.doc, path):
+            self.statusBar().showMessage(f"Layout preview exported to {path}", 3000)
+        else:
+            self.statusBar().showMessage(f"Could not write {path}", 3000)
 
     def save_json(self, path) -> None:
         Path(path).write_text(self.doc.to_json(base_dir=Path(path).parent))

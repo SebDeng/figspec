@@ -11,6 +11,18 @@ _PAGE = QColor("#FFFFFF")
 _FRAME = QColor("#B9B6B0")
 _TEXT = QColor("#6E6B66")
 _LETTER = QColor("#3A3835")
+_TEXT_MARGIN_MM = 0.6  # clearance kept between annotation text and the frame
+
+
+def _fits(fm, text: str, rect: QRectF, margin_px: float) -> bool:
+    """Whether `text`, measured with font metrics `fm`, fits inside `rect`
+    with `margin_px` of clearance on every side.
+
+    Used to skip the per-panel letter/mm-size annotations on narrow slivers
+    instead of letting them bleed across the panel's own frame (or a
+    neighbor's) — degrading by omission is correct for a wireframe."""
+    return (fm.horizontalAdvance(text) + 2 * margin_px <= rect.width()
+            and fm.height() + 2 * margin_px <= rect.height())
 
 
 def render_layout_image(tree, target, *, scale: int = 2) -> QImage:
@@ -32,19 +44,25 @@ def render_layout_image(tree, target, *, scale: int = 2) -> QImage:
     small_font = QFont()
     small_font.setPixelSize(max(8, round(2.2 * ppm)))
 
+    margin_px = _TEXT_MARGIN_MM * ppm
     for r in rects:
         rect = QRectF(r.x_mm * ppm, r.y_mm * ppm, r.w_mm * ppm, r.h_mm * ppm)
         painter.setPen(QPen(_FRAME, max(1.0, 0.35 * scale)))
         painter.setBrush(Qt.NoBrush)
         painter.drawRect(rect)
-        painter.setPen(_LETTER)
+
+        letter_text = labels[r.panel_id]
         painter.setFont(letter_font)
-        painter.drawText(rect.adjusted(1.2 * ppm, 0.6 * ppm, 0, 0),
-                         Qt.AlignLeft | Qt.AlignTop, labels[r.panel_id])
-        painter.setPen(_TEXT)
+        if _fits(painter.fontMetrics(), letter_text, rect, margin_px):
+            painter.setPen(_LETTER)
+            painter.drawText(rect.adjusted(1.2 * ppm, 0.6 * ppm, 0, 0),
+                             Qt.AlignLeft | Qt.AlignTop, letter_text)
+
+        mm_text = f"{r.w_mm:.1f} × {r.h_mm:.1f} mm"
         painter.setFont(small_font)
-        painter.drawText(rect, Qt.AlignCenter,
-                         f"{r.w_mm:.1f} × {r.h_mm:.1f} mm")
+        if _fits(painter.fontMetrics(), mm_text, rect, margin_px):
+            painter.setPen(_TEXT)
+            painter.drawText(rect, Qt.AlignCenter, mm_text)
 
     painter.setPen(_TEXT)
     painter.setFont(small_font)
@@ -56,5 +74,5 @@ def render_layout_image(tree, target, *, scale: int = 2) -> QImage:
     return img
 
 
-def render_layout_png(doc, path, scale: int = 2) -> None:
-    render_layout_image(doc.tree, doc.target, scale=scale).save(str(path))
+def render_layout_png(doc, path, scale: int = 2) -> bool:
+    return render_layout_image(doc.tree, doc.target, scale=scale).save(str(path))
