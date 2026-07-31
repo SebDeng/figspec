@@ -5,6 +5,7 @@ from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QLabel, QWidget
 from figspec_designer.document import DesignerDocument
 from figspec_designer.model import ops
+from figspec_designer.model.flatten import format_label
 from figspec_designer.model.tree import Node, PanelNode
 from figspec_designer.ui.handle import GutterSplitter
 from figspec_designer.ui.panel_widget import PanelWidget
@@ -108,7 +109,9 @@ class Canvas(QWidget):
         if isinstance(node, PanelNode):
             violated = self._aspect_violated(node, rects)
             thumb, missing = self._load_thumb(node)
-            w = PanelWidget(node.id, labels.get(node.id, "?"),
+            text = format_label(labels.get(node.id, "?"),
+                                self._doc.constraints.panel_label_style)
+            w = PanelWidget(node.id, text,
                             aspect_violated=violated,
                             thumb=thumb, asset_missing=missing)
             w.action.connect(self.panel_action.emit)

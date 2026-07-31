@@ -192,7 +192,7 @@ class MainWindow(QMainWindow):
         rect = next(r for r in self.doc.panel_rects() if r.panel_id == pid)
         panel = panels[pid]
         from pathlib import Path as _P
-        from figspec_designer.model.flatten import effective_dpi
+        from figspec_designer.model.flatten import effective_dpi, format_label
         from figspec.document import resolve_asset
         asset_name = asset_px = eff = None
         dpi_level, missing = "ok", False
@@ -204,7 +204,9 @@ class MainWindow(QMainWindow):
             dpi_level = ("ok" if eff >= floor
                          else "warn" if eff >= 0.67 * floor else "bad")
             missing = resolve_asset(panel.asset, self._asset_base_dir()) is None
-        self.sidebar.show_panel(pid, self.doc.labels()[pid], rect,
+        label_text = format_label(self.doc.labels()[pid],
+                                  self.doc.constraints.panel_label_style)
+        self.sidebar.show_panel(pid, label_text, rect,
                                 self.doc.target.dpi, panel.content_hint,
                                 aspect_lock=panel.aspect_lock,
                                 w_adjustable=self._axis_adjustable(pid, "w"),
@@ -432,12 +434,14 @@ class MainWindow(QMainWindow):
         (preset, width, height, dpi, gutter,
          min_font, max_font, min_lw) = self.topbar.values()
         self.doc.target = Target(preset, width, height, dpi, gutter)
-        # replace(), not Constraints(...) -- the topbar only owns these three
+        # replace(), not Constraints(...) -- the topbar only owns these
         # fields; a fresh Constraints() would silently reset the rest (e.g.
         # min_effective_dpi) to their dataclass defaults on every edit.
+        style = presets.PANEL_LABEL_STYLE.get(
+            preset, self.doc.constraints.panel_label_style)
         self.doc.constraints = dataclasses.replace(
             self.doc.constraints, min_font_pt=min_font, max_font_pt=max_font,
-            min_linewidth_pt=min_lw)
+            min_linewidth_pt=min_lw, panel_label_style=style)
         self.refresh()
 
     def _on_settings_changed(self) -> None:

@@ -34,3 +34,48 @@ def test_no_warning_for_custom_or_aps(qtbot):
     assert win.topbar.height_spin.property("overLimit") is not True
     win.topbar.preset_combo.setCurrentText("custom")
     assert win.topbar.height_spin.property("overLimit") is not True
+
+
+def test_label_style_follows_preset(qtbot):
+    win = MainWindow()
+    qtbot.addWidget(win)
+    from figspec.layout.tree import iter_panels
+    pid = next(iter_panels(win.doc.tree)).id
+    win.topbar.preset_combo.setCurrentText("science_double")
+    assert win.doc.constraints.panel_label_style == "uppercase"
+    assert win.canvas.panel_widgets()[pid].label_widget.text() == "A"
+    win.do_action("select", pid)
+    assert win.sidebar.lbl_label.text() == "A"
+    win.topbar.preset_combo.setCurrentText("aps_double")
+    assert win.canvas.panel_widgets()[pid].label_widget.text() == "(a)"
+    # spec export keeps internal lowercase labels regardless of display
+    assert win.doc.to_spec_dict()["panels"][0]["label"] == "a"
+
+
+def test_label_style_survives_spec_roundtrip(qtbot):
+    win = MainWindow()
+    qtbot.addWidget(win)
+    win.topbar.preset_combo.setCurrentText("science_double")
+    data = win.doc.to_spec_dict()
+    assert data["constraints"]["panel_label_style"] == "uppercase"
+
+
+def test_sync_settings_preserves_min_effective_dpi(qtbot):
+    win = MainWindow()
+    qtbot.addWidget(win)
+    win.doc.constraints.min_effective_dpi = 450
+    win.topbar.gutter_spin.setValue(5.0)  # triggers _on_settings_changed
+    assert win.doc.constraints.min_effective_dpi == 450
+
+
+def test_wireframe_export_uses_label_style(qtbot, tmp_path):
+    win = MainWindow()
+    qtbot.addWidget(win)
+    win.topbar.preset_combo.setCurrentText("science_double")
+    from figspec_designer.ui.preview_export import render_layout_png
+    out = tmp_path / "wf.png"
+    assert render_layout_png(win.doc, out) is True
+    # can't OCR the letter; assert the code path accepts the style without
+    # error and the file is written (letter correctness is pinned by the
+    # canvas/sidebar assertions above via the same format_label call)
+    assert out.stat().st_size > 0
