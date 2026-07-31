@@ -71,7 +71,9 @@ class MainWindow(QMainWindow):
         self.sidebar.aspect_lock_toggled.connect(self._on_aspect_lock)
         self.sidebar.placement_copy_requested.connect(self.copy_placement_table)
         self.sidebar.snippet_copy_requested.connect(self.copy_snippet)
+        self.sidebar.card_copy_requested.connect(self.copy_authoring_card)
         self.sidebar.asset_remove_requested.connect(self._on_asset_removed)
+        self.sidebar.asset_dpi_edited.connect(self._on_asset_dpi_edited)
 
         self.lint_dock = LintDock(self)
         self.addDockWidget(Qt.RightDockWidgetArea, self.lint_dock)
@@ -108,6 +110,7 @@ class MainWindow(QMainWindow):
         act(file_menu, "Copy JSON", "Ctrl+Shift+C", self.copy_json)
         act(file_menu, "Copy Placement Table", None, self.copy_placement_table)
         act(file_menu, "Copy matplotlib Snippet", None, self.copy_snippet)
+        act(file_menu, "Copy Authoring Card", None, self.copy_authoring_card)
         act(file_menu, "Export Layout Preview…", None, self.export_layout_preview)
         self.lint_action = act(file_menu, "Lint PDF…", "Ctrl+L", self.lint_pdf)
         edit_menu = self.menuBar().addMenu("Edit")
@@ -204,6 +207,12 @@ class MainWindow(QMainWindow):
         except KeyError:
             pass
 
+    def _on_asset_dpi_edited(self, panel_id: str, dpi: float | None) -> None:
+        try:
+            self._push_tree(ops.set_asset_dpi(self.doc.tree, panel_id, dpi))
+        except (ValueError, KeyError):
+            self._refresh_sidebar()  # snap the field back to the tree's value
+
     def _refresh_sidebar(self) -> None:
         pid = self.selected_panel_id
         panels = {p.id: p for p in iter_panels(self.doc.tree)}
@@ -216,9 +225,10 @@ class MainWindow(QMainWindow):
         from pathlib import Path as _P
         from figspec_designer.model.flatten import effective_dpi, format_label
         from figspec.document import resolve_asset
-        asset_name = asset_px = eff = None
+        asset_name = asset_px = eff = scale_k = None
         dpi_level, missing = "ok", False
         if panel.asset is not None:
+            from figspec import scaling
             asset_name = _P(panel.asset).name
             asset_px = panel.asset_px
             eff = effective_dpi(panel.asset_px, rect.w_mm, rect.h_mm)
@@ -226,6 +236,9 @@ class MainWindow(QMainWindow):
             dpi_level = ("ok" if eff >= floor
                          else "warn" if eff >= 0.67 * floor else "bad")
             missing = resolve_asset(panel.asset, self._asset_base_dir()) is None
+            src_mm = scaling.asset_size_mm(panel.asset_px,
+                                           panel.asset_dpi or 96.0)
+            scale_k = scaling.placement_scale((rect.w_mm, rect.h_mm), src_mm)
         label_text = format_label(self.doc.labels()[pid],
                                   self.doc.constraints.panel_label_style)
         self.sidebar.show_panel(pid, label_text, rect,
@@ -235,7 +248,8 @@ class MainWindow(QMainWindow):
                                 h_adjustable=self._axis_adjustable(pid, "h"),
                                 asset_name=asset_name, asset_px=asset_px,
                                 eff_dpi=eff, dpi_level=dpi_level,
-                                asset_missing=missing)
+                                asset_missing=missing,
+                                asset_dpi=panel.asset_dpi, scale_k=scale_k)
 
     def _axis_adjustable(self, panel_id: str, axis: str) -> bool:
         """Probe whether axis can be resized on the CURRENT tree, without
@@ -493,6 +507,24 @@ class MainWindow(QMainWindow):
         QApplication.clipboard().setText(
             generate_snippet(self.doc.to_spec_dict(), name))
         self.statusBar().showMessage("matplotlib snippet copied", 3000)
+
+    def copy_authoring_card(self) -> None:
+        from figspec import scaling
+        pid = self.selected_panel_id
+        rect = next((r for r in self.doc.panel_rects() if r.panel_id == pid),
+                    None)
+        if rect is None:
+            self.statusBar().showMessage("Select a panel first", 3000)
+            return
+        panel = next(p for p in iter_panels(self.doc.tree) if p.id == pid)
+        # Undeclared raster sources fall back to the same 96 dpi assumption
+        # the sidebar displays -- the card must agree with the ×k on screen.
+        dpi = panel.asset_dpi if panel.asset_dpi else (
+            96.0 if panel.asset_px else None)
+        QApplication.clipboard().setText(scaling.authoring_card(
+            (rect.w_mm, rect.h_mm), self.doc.constraints,
+            asset_px=panel.asset_px, asset_dpi=dpi))
+        self.statusBar().showMessage("Authoring card copied", 3000)
 
     def export_layout_preview(self) -> None:
         from figspec_designer.ui.preview_export import render_layout_png
