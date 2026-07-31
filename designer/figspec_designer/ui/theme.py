@@ -15,6 +15,9 @@ PANEL_BG = "#FFFFFF"
 LETTER = "#C6C3BC"
 AMBER_BG = "#F5A623"
 AMBER_INK = "#3D2B00"
+DPI_OK = "#3D7A44"
+DPI_WARN = "#B07D2A"
+DPI_BAD = "#B04A3A"
 
 QSS = f"""
 QMainWindow, QWidget#chrome {{ background: {CHROME}; }}
@@ -72,6 +75,10 @@ QLineEdit#hintEdit {{ background: transparent; border: none; border-bottom: 1px 
     border-radius: 0; padding: 3px 0; color: {INK}; }}
 QLineEdit#hintEdit:focus {{ border-bottom: 2px solid {INK}; }}
 QLineEdit#hintEdit:disabled {{ border-bottom-color: {HAIRLINE}; color: {INK_MUTED}; }}
+
+QLabel#dpiValue[level="ok"] {{ color: {DPI_OK}; font-weight: 600; }}
+QLabel#dpiValue[level="warn"] {{ color: {DPI_WARN}; font-weight: 600; }}
+QLabel#dpiValue[level="bad"] {{ color: {DPI_BAD}; font-weight: 600; }}
 """
 
 

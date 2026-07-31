@@ -96,3 +96,44 @@ def test_open_json_resolves_relative_assets_before_render(qtbot, tmp_path):
     widget = win2.canvas.panel_widgets()[pid2]
     assert widget.property("assetMissing") is False
     assert widget._thumb is not None
+
+
+def test_sidebar_asset_block_and_dpi_light(qtbot, tmp_path):
+    win = MainWindow()
+    qtbot.addWidget(win)
+    png = _make_png(tmp_path, 400, 300)
+    pid = next(iter_panels(win.doc.tree)).id
+    win._on_asset_dropped(pid, str(png))
+    win.do_action("select", pid)
+    sb = win.sidebar
+    assert sb.asset_box.isVisibleTo(sb)  # offscreen-safe visibility check
+    assert sb.lbl_asset_name.text() == "asset.png"
+    assert sb.lbl_asset_px.text() == "400 × 300 px"
+    # default panel 183x100mm: eff dpi = min(400/7.2in, 300/3.94in) ~ 55 -> red
+    assert sb.lbl_asset_dpi.property("level") == "bad"
+    assert "dpi" in sb.lbl_asset_dpi.text()
+
+
+def test_sidebar_remove_asset(qtbot, tmp_path):
+    win = MainWindow()
+    qtbot.addWidget(win)
+    png = _make_png(tmp_path)
+    pid = next(iter_panels(win.doc.tree)).id
+    win._on_asset_dropped(pid, str(png))
+    win.do_action("select", pid)
+    win.sidebar.btn_remove_asset.click()
+    assert next(iter_panels(win.doc.tree)).asset is None
+    win.do_action("select", pid)
+    assert not win.sidebar.asset_box.isVisibleTo(win.sidebar)
+
+
+def test_dpi_levels(qtbot, tmp_path):
+    # a big asset on the default 183x100 panel: 8000x5000 -> ~1270 dpi -> ok
+    win = MainWindow()
+    qtbot.addWidget(win)
+    png = _make_png(tmp_path, 80, 50, "big.png")  # tiny file, fake px via ops
+    pid = next(iter_panels(win.doc.tree)).id
+    from figspec.layout import ops
+    win._push_tree(ops.set_asset(win.doc.tree, pid, str(png), (8000, 5000)))
+    win.do_action("select", pid)
+    assert win.sidebar.lbl_asset_dpi.property("level") == "ok"

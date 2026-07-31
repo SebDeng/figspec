@@ -65,6 +65,7 @@ class MainWindow(QMainWindow):
         self.sidebar.aspect_lock_toggled.connect(self._on_aspect_lock)
         self.sidebar.placement_copy_requested.connect(self.copy_placement_table)
         self.sidebar.snippet_copy_requested.connect(self.copy_snippet)
+        self.sidebar.asset_remove_requested.connect(self._on_asset_removed)
 
         self._make_menus()
         # Init-time doc/topbar sync only -- NOT _on_settings_changed(),
@@ -159,6 +160,12 @@ class MainWindow(QMainWindow):
         except KeyError:
             self.statusBar().showMessage("Panel no longer exists", 3000)
 
+    def _on_asset_removed(self, panel_id: str) -> None:
+        try:
+            self._push_tree(ops.set_asset(self.doc.tree, panel_id, None, None))
+        except KeyError:
+            pass
+
     def _refresh_sidebar(self) -> None:
         pid = self.selected_panel_id
         panels = {p.id: p for p in iter_panels(self.doc.tree)}
@@ -168,11 +175,27 @@ class MainWindow(QMainWindow):
             return
         rect = next(r for r in self.doc.panel_rects() if r.panel_id == pid)
         panel = panels[pid]
+        from pathlib import Path as _P
+        from figspec_designer.model.flatten import effective_dpi
+        from figspec.document import resolve_asset
+        asset_name = asset_px = eff = None
+        dpi_level, missing = "ok", False
+        if panel.asset is not None:
+            asset_name = _P(panel.asset).name
+            asset_px = panel.asset_px
+            eff = effective_dpi(panel.asset_px, rect.w_mm, rect.h_mm)
+            floor = self.doc.constraints.min_effective_dpi
+            dpi_level = ("ok" if eff >= floor
+                         else "warn" if eff >= 0.67 * floor else "bad")
+            missing = resolve_asset(panel.asset, self._asset_base_dir()) is None
         self.sidebar.show_panel(pid, self.doc.labels()[pid], rect,
                                 self.doc.target.dpi, panel.content_hint,
                                 aspect_lock=panel.aspect_lock,
                                 w_adjustable=self._axis_adjustable(pid, "w"),
-                                h_adjustable=self._axis_adjustable(pid, "h"))
+                                h_adjustable=self._axis_adjustable(pid, "h"),
+                                asset_name=asset_name, asset_px=asset_px,
+                                eff_dpi=eff, dpi_level=dpi_level,
+                                asset_missing=missing)
 
     def _axis_adjustable(self, panel_id: str, axis: str) -> bool:
         """Probe whether axis can be resized on the CURRENT tree, without
