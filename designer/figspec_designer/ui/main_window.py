@@ -456,8 +456,8 @@ class MainWindow(QMainWindow):
                                self.doc.constraints.min_font_pt,
                                self.doc.constraints.max_font_pt,
                                self.doc.constraints.min_linewidth_pt)
-        self.refresh()
         self.current_path = Path(path)
+        self.refresh()
         self.dirty = False
         self._add_recent(self.current_path)
         self._refresh_title()

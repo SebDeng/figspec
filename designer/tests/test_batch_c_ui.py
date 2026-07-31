@@ -73,3 +73,26 @@ def test_drag_enter_accepts_image_urls(qtbot, tmp_path):
     mime2 = QMimeData()
     mime2.setUrls([QUrl.fromLocalFile(str(tmp_path / "x.pdf"))])
     assert not widget._accepts_mime(mime2)
+
+
+def test_open_json_resolves_relative_assets_before_render(qtbot, tmp_path):
+    # Regression: open_json() used to call refresh() before setting
+    # current_path, so the first render after File > Open resolved
+    # relative asset paths against a stale/None base dir and falsely
+    # flagged every present asset as missing.
+    win = MainWindow()
+    qtbot.addWidget(win)
+    png = _make_png(tmp_path)
+    pid = next(iter_panels(win.doc.tree)).id
+    win._on_asset_dropped(pid, str(png))
+    json_path = tmp_path / "figspec.json"
+    win.save_json(json_path)  # relativizes the asset path in the saved JSON
+
+    win2 = MainWindow()
+    qtbot.addWidget(win2)
+    err = win2.open_json(str(json_path))
+    assert err is None
+    pid2 = next(iter_panels(win2.doc.tree)).id
+    widget = win2.canvas.panel_widgets()[pid2]
+    assert widget.property("assetMissing") is False
+    assert widget._thumb is not None

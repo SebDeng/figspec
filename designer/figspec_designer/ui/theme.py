@@ -25,6 +25,7 @@ Canvas {{ background: {CANVAS}; }}
 QWidget#page {{ background: transparent; border: none; }}
 
 PanelWidget {{ background: {PANEL_BG}; border: 1px solid {HAIRLINE}; border-radius: 4px; }}
+PanelWidget[assetMissing="true"] {{ border: 1px solid {AMBER_BG}; }}
 PanelWidget[selected="true"] {{ border: 2px solid {INK}; }}
 PanelWidget[swapArmed="true"] {{ border: 2px dashed {AMBER_BG}; }}
 QLabel#panelLetter {{ color: {LETTER}; font-size: 20px; font-weight: 600; background: transparent; border: none; }}
@@ -41,7 +42,6 @@ QLabel#missingBadge {{
     background: {AMBER_BG}; color: {AMBER_INK}; border-radius: 4px;
     padding: 1px 6px; font-size: 10px;
 }}
-PanelWidget[assetMissing="true"] {{ border: 1px solid {AMBER_BG}; }}
 QLabel#panelLetter[onImage="true"] {{
     background: rgba(255, 255, 255, 0.75); border-radius: 6px;
 }}
