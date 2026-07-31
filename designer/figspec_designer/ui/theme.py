@@ -61,6 +61,10 @@ QComboBox, QDoubleSpinBox, QSpinBox {{ background: {PANEL_BG}; border: 1px solid
     border-radius: 6px; padding: 3px 8px; color: {INK}; }}
 QComboBox:hover, QDoubleSpinBox:hover, QSpinBox:hover {{ border-color: {DIVIDER}; }}
 QComboBox::drop-down {{ border: none; width: 18px; }}
+QDoubleSpinBox[overLimit="true"] {{
+    color: {AMBER_INK}; border: 1px solid {AMBER_BG};
+    background: #FBF3E2;
+}}
 QPushButton {{ background: {CHROME}; border: 1px solid {DIVIDER}; border-radius: 12px;
     padding: 4px 14px; color: {INK}; }}
 QPushButton:hover {{ background: {CANVAS}; }}

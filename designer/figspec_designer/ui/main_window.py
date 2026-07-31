@@ -12,6 +12,7 @@ from figspec.document import absolutize_assets
 from figspec.snippet import generate_snippet
 from figspec.spec import Target
 from figspec.templates import TEMPLATES
+from figspec_designer import presets
 from figspec_designer.document import DesignerDocument, MissingDesignerData
 from figspec_designer.model import ops
 from figspec_designer.model.history import History
@@ -150,6 +151,15 @@ class MainWindow(QMainWindow):
         self.canvas.set_document(self.doc, base_dir=self._asset_base_dir())
         self.canvas.apply_selection(self.selected_panel_id)
         self._refresh_sidebar()
+        self._update_height_warning()
+
+    def _update_height_warning(self) -> None:
+        limit = presets.MAX_HEIGHT_MM.get(self.doc.target.journal_preset)
+        height = self.doc.target.figure_height_mm
+        over = limit is not None and height > limit
+        tip = (f"Exceeds {self.doc.target.journal_preset} max height "
+               f"{limit:g} mm (see docs/journal-figure-specs.md)") if over else ""
+        self.topbar.set_height_over_limit(over, tip)
 
     def _asset_base_dir(self) -> Path | None:
         return self.current_path.parent if self.current_path else None
