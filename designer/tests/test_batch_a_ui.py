@@ -271,6 +271,55 @@ def test_confirm_discard_save_choice_routes_through_save(qtbot, monkeypatch):
     assert save_calls == [True]
 
 
+# ---- Important 1: save-failure during close/⌘S must not silently discard --
+
+def _raise_oserror(path):
+    raise OSError("Read-only file system")
+
+
+def test_save_write_failure_returns_false_keeps_dirty_reports_error(qtbot, monkeypatch):
+    win, _ = _win(qtbot)
+    win.current_path = "/nonexistent/dir/f.json"  # save_json below never touches disk
+    monkeypatch.setattr(win, "save_json", _raise_oserror)
+    errors = []
+    monkeypatch.setattr(win, "_report_save_error",
+                        lambda path, err: errors.append((path, err)))
+    assert win.dirty is True
+    assert win.save() is False
+    assert win.dirty is True  # NOT silently marked clean on a failed write
+    assert len(errors) == 1 and isinstance(errors[0][1], OSError)
+
+
+def test_save_as_write_failure_returns_false_leaves_current_path_unset(qtbot, monkeypatch):
+    win, _ = _win(qtbot)
+    win.current_path = None
+    monkeypatch.setattr(win, "_ask_save_path", lambda: "/nonexistent/dir/f.json")
+    monkeypatch.setattr(win, "save_json", _raise_oserror)
+    monkeypatch.setattr(win, "_report_save_error", lambda path, err: None)
+    assert win.save_as() is False
+    assert win.current_path is None
+    assert win.dirty is True
+
+
+def test_save_failure_cancels_close_via_confirm_discard(qtbot, monkeypatch):
+    # Repro: dirty window -> close -> dialog -> user clicks Save -> the
+    # destination is unwritable -> the OSError must not escape closeEvent
+    # and accept the close with unsaved work still dirty.
+    win, _ = _win(qtbot)
+    win.current_path = "/nonexistent/dir/f.json"
+    monkeypatch.setattr(win, "save_json", _raise_oserror)
+    monkeypatch.setattr(win, "_report_save_error", lambda path, err: None)
+    monkeypatch.setattr(win, "confirm_discard",
+                        types.MethodType(_REAL_CONFIRM_DISCARD, win))
+    monkeypatch.setattr(QMessageBox, "exec", lambda self: QMessageBox.Save)
+    assert win.confirm_discard() is False  # Save chosen but write failed -> close cancelled
+    assert win.dirty is True
+
+    event = _FakeCloseEvent()
+    win.closeEvent(event)
+    assert event.accepted is False  # window must stay open, work not discarded
+
+
 # ---- Task 4: split-n / equalize / swap / nudge -----------------------------
 
 def test_split_n_via_action(qtbot, monkeypatch):

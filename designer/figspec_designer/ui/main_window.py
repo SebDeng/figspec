@@ -431,9 +431,12 @@ class MainWindow(QMainWindow):
     def save(self) -> bool:
         """⌘S: silent write if a current_path is already known, otherwise
         falls through to the Save As dialog. Returns True on a completed
-        write, False if the user cancelled a Save As prompt."""
+        write, False if the user cancelled a Save As prompt OR the write
+        itself failed (unwritable dir, disk full, ...) -- both must cancel
+        a caller like confirm_discard() rather than proceed as if saved."""
         if self.current_path is not None:
-            self.save_json(self.current_path)
+            if not self._write_json(self.current_path):
+                return False
             self.dirty = False
             self._refresh_title()
             self._add_recent(self.current_path)
@@ -445,12 +448,35 @@ class MainWindow(QMainWindow):
         path = self._ask_save_path()
         if path is None:
             return False
+        if not self._write_json(path):
+            return False  # leave current_path unset -- retry re-prompts
         self.current_path = path
-        self.save_json(self.current_path)
         self.dirty = False
         self._refresh_title()
         self._add_recent(self.current_path)
         return True
+
+    def _write_json(self, path) -> bool:
+        """save_json(), but catching OSError (read-only dir, disk full, a
+        vanished mount, ...) so it can't escape into closeEvent -- which
+        would otherwise leave the QCloseEvent in its default-accepted
+        state and close the window with dirty=True, discarding the work
+        the user just tried to save. Returns False on failure, after
+        reporting it."""
+        try:
+            self.save_json(path)
+        except OSError as e:
+            self._report_save_error(path, e)
+            return False
+        return True
+
+    def _report_save_error(self, path, error: OSError) -> None:
+        """Factored out so tests can monkeypatch it to bypass the modal
+        QMessageBox (same pattern as confirm_discard/_ask_save_path)."""
+        msg = f"Could not save to {path}: {error}"
+        self.statusBar().showMessage(msg, 5000)
+        if self.isVisible():
+            QMessageBox.critical(self, "Save failed", msg)
 
     def _ask_save_path(self) -> Path | None:
         """Factored out so tests can monkeypatch it to bypass the modal
