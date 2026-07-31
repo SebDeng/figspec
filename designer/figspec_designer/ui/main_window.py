@@ -45,6 +45,8 @@ class MainWindow(QMainWindow):
         self.canvas = Canvas()
         self.sidebar = Sidebar()
         self.sidebar.setFixedWidth(260)
+        from figspec_designer.ui.specimen_strip import SpecimenStrip
+        self.specimen_strip = SpecimenStrip()
 
         # Scroll container: inert at fit zoom (canvas min size 0), grows
         # scrollbars when actual/manual zoom pins the page larger than the
@@ -65,11 +67,14 @@ class MainWindow(QMainWindow):
         row.addWidget(self.canvas_scroll, stretch=1)
         row.addWidget(self.sidebar)
         outer.addLayout(row, stretch=1)
+        outer.addWidget(self.specimen_strip)
         self.setCentralWidget(central)
 
         self.canvas.panel_action.connect(lambda a, pid: self.do_action(a, pid))
         self.canvas.ratios_committed.connect(self.apply_ratios)
         self.canvas.asset_dropped.connect(self._on_asset_dropped)
+        self.canvas.scale_changed.connect(self._on_canvas_scale)
+        self.specimen_strip.actual_size_requested.connect(self.zoom_actual)
         self.topbar.settings_changed.connect(self._on_settings_changed)
         self.topbar.save_requested.connect(self.save)
         self.topbar.copy_requested.connect(self.copy_json)
@@ -201,6 +206,10 @@ class MainWindow(QMainWindow):
         return truescale.screen_px_per_mm(
             screen, truescale.load_correction(screen, self._settings()))
 
+    def _on_canvas_scale(self, ppm: float) -> None:
+        self.specimen_strip.set_context(ppm, self._actual_ppm(),
+                                        self.doc.constraints)
+
     def zoom_fit(self) -> None:
         self.canvas.set_zoom("fit")
 
@@ -270,6 +279,7 @@ class MainWindow(QMainWindow):
         if pid is None or pid not in panels:
             self.selected_panel_id = None
             self.sidebar.clear()
+            self.specimen_strip.set_panel_scale(None)
             return
         rect = next(r for r in self.doc.panel_rects() if r.panel_id == pid)
         panel = panels[pid]
@@ -301,6 +311,7 @@ class MainWindow(QMainWindow):
                                 eff_dpi=eff, dpi_level=dpi_level,
                                 asset_missing=missing,
                                 asset_dpi=panel.asset_dpi, scale_k=scale_k)
+        self.specimen_strip.set_panel_scale(scale_k)
 
     def _axis_adjustable(self, panel_id: str, axis: str) -> bool:
         """Probe whether axis can be resized on the CURRENT tree, without

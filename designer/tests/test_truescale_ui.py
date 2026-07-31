@@ -168,3 +168,66 @@ def test_calibrate_dialog_slider_drives_ruler(qtbot):
     dlg.slider.setValue(1100)
     assert dlg.ruler.bar_px() == pytest.approx(before * 1.10, rel=1e-6)
     assert dlg.correction() == pytest.approx(1.10)
+
+
+# ---- specimen strip (task E4) -------------------------------------------
+
+def test_specimen_strip_state(qtbot):
+    from figspec.spec import Constraints
+    from figspec_designer.ui.specimen_strip import SpecimenStrip
+    strip = SpecimenStrip()
+    qtbot.addWidget(strip)
+    strip.set_context(9.724, 4.862,
+                      Constraints(min_font_pt=5.0, max_font_pt=7.0))
+    assert strip.badge_text() == "200% of print size"
+    rows = strip.rows()
+    assert "Aa 5.0 pt" in rows and "Aa 7.0 pt" in rows
+    assert "0.25 pt" in rows and "1 pt" in rows and "10 mm" in rows
+    assert "5.0 pt = 1.76 mm" in strip.toolTip()
+
+
+def test_specimen_strip_panel_row(qtbot):
+    from figspec.spec import Constraints
+    from figspec_designer.ui.specimen_strip import SpecimenStrip
+    strip = SpecimenStrip()
+    qtbot.addWidget(strip)
+    strip.set_context(4.862, 4.862, Constraints())
+    strip.set_panel_scale(0.154)
+    assert "8 pt → 1.23 pt" in strip.rows()
+    strip.set_panel_scale(None)
+    assert not any("→" in r for r in strip.rows())
+
+
+def test_strip_button_requests_actual_size(qtbot):
+    from figspec_designer.ui.specimen_strip import SpecimenStrip
+    strip = SpecimenStrip()
+    qtbot.addWidget(strip)
+    with qtbot.waitSignal(strip.actual_size_requested, timeout=2000):
+        strip.btn_actual.click()
+
+
+def test_mainwindow_strip_follows_zoom(qtbot, monkeypatch):
+    from figspec_designer.ui.main_window import MainWindow
+    win = MainWindow()
+    qtbot.addWidget(win)
+    monkeypatch.setattr(win, "_actual_ppm", lambda: 4.862)
+    win.canvas.set_zoom("manual", 9.724)
+    assert win.specimen_strip.badge_text() == "200% of print size"
+
+
+def test_mainwindow_strip_shows_selected_panel_scale(qtbot, tmp_path):
+    from PySide6.QtGui import QImage
+    from figspec.layout.tree import iter_panels
+    from figspec_designer.ui.main_window import MainWindow
+    win = MainWindow()
+    qtbot.addWidget(win)
+    img = QImage(1472, 879, QImage.Format_RGB32)
+    img.fill(0xFFFFFFFF)
+    png = tmp_path / "asset.png"
+    img.save(str(png))
+    pid = next(iter_panels(win.doc.tree)).id
+    win._on_asset_dropped(pid, str(png))
+    win.do_action("select", pid)
+    assert any(r.startswith("8 pt → ") for r in win.specimen_strip.rows())
+    win.do_action("select", None)
+    assert not any("→" in r for r in win.specimen_strip.rows())
