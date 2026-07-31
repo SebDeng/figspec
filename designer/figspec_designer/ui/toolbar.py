@@ -22,6 +22,11 @@ class TopBar(QWidget):
 
         self.preset_combo = QComboBox()
         self.preset_combo.addItems(list(presets.PRESETS) + ["custom"])
+        for i in range(self.preset_combo.count()):
+            key = self.preset_combo.itemText(i)
+            if key in presets.PRESET_SOURCES:
+                self.preset_combo.setItemData(
+                    i, presets.PRESET_SOURCES[key], Qt.ToolTipRole)
         self.width_spin = QDoubleSpinBox()
         self.width_spin.setRange(10.0, 1000.0)
         self.width_spin.setSuffix(" mm")
@@ -136,3 +141,10 @@ class TopBar(QWidget):
         self.min_lw_spin.setValue(min_lw)
         for w in widgets:
             w.blockSignals(False)
+
+    def set_height_over_limit(self, over: bool, tooltip: str = "") -> None:
+        """Advisory amber styling on the height spinbox -- never blocks input."""
+        from figspec_designer.ui.theme import repolish
+        self.height_spin.setProperty("overLimit", bool(over))
+        self.height_spin.setToolTip(tooltip if over else "")
+        repolish(self.height_spin)

@@ -157,3 +157,12 @@
 - **APS**：彩色印刷附加费（首图 US$1090 + 每追加图 $595）、篇幅字数折算公式（Length Guide）、H-18（坐标轴标注）与 H-24（在线彩色）备忘录内容未被独立复核。
 - **ACS**：ACS Nano PDF 与 JACS/Nano Letters 在 Appendix 2 图片制作条款上"逐字相同"的说法未被独立复核（JACS 已完整核验，Nano Letters 仅抽查）。
 - **跨出版社**：AI 生成图像禁令已在 APS 文档中确认，但 Science Advances 对应表述的信源未被复核；上述残留项均不影响本文档给出的核心数字（宽度/字号/线宽/DPI），仅涉及旁证性或非数字条款。
+
+## FigSpec 取值决策（MAX_HEIGHT_MM / PANEL_LABEL_STYLE）
+
+- nature_*: 170 mm — formatting-guide §5.9 页深上限（含图注位，247 mm 整页深不用于图）。
+- nature_research_*: 185 mm — NRJs final-artwork PDF 中图注 <300 词档的双栏最大高度；取宽松档，tooltip 注明。
+- science_*: 199 mm — SciAdv figure guide 推荐上限；Science 旗舰刊无数字，沿用并标注。
+- acs_*: 232.8 mm — 660 pt（含图注）换算。
+- aps_*: 无数字上限 → None，不警告。
+- 标号风格：Nature/NRJ/ACS 小写 a；Science 大写 A；APS (a)（Memo H-18 惯例）。

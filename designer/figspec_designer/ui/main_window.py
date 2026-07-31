@@ -12,11 +12,13 @@ from figspec.document import absolutize_assets
 from figspec.snippet import generate_snippet
 from figspec.spec import Target
 from figspec.templates import TEMPLATES
+from figspec_designer import presets
 from figspec_designer.document import DesignerDocument, MissingDesignerData
 from figspec_designer.model import ops
 from figspec_designer.model.history import History
 from figspec_designer.model.tree import iter_panels
 from figspec_designer.ui.canvas import Canvas
+from figspec_designer.ui.lint_dock import LintDock
 from figspec_designer.ui.sidebar import Sidebar
 from figspec_designer.ui.theme import apply_theme
 from figspec_designer.ui.toolbar import TopBar
@@ -71,6 +73,13 @@ class MainWindow(QMainWindow):
         self.sidebar.snippet_copy_requested.connect(self.copy_snippet)
         self.sidebar.asset_remove_requested.connect(self._on_asset_removed)
 
+        self.lint_dock = LintDock(self)
+        self.addDockWidget(Qt.RightDockWidgetArea, self.lint_dock)
+        self.lint_dock.hide()
+        self.lint_dock.relint_requested.connect(self._relint)
+        self._lint_worker = None
+        self._last_lint_path: str | None = None
+
         self._make_menus()
         # Init-time doc/topbar sync only -- NOT _on_settings_changed(),
         # which additionally marks dirty. A freshly-constructed window with
@@ -100,6 +109,7 @@ class MainWindow(QMainWindow):
         act(file_menu, "Copy Placement Table", None, self.copy_placement_table)
         act(file_menu, "Copy matplotlib Snippet", None, self.copy_snippet)
         act(file_menu, "Export Layout Preview…", None, self.export_layout_preview)
+        self.lint_action = act(file_menu, "Lint PDF…", "Ctrl+L", self.lint_pdf)
         edit_menu = self.menuBar().addMenu("Edit")
         act(edit_menu, "Undo", "Ctrl+Z", self.undo)
         act(edit_menu, "Redo", "Ctrl+Shift+Z", self.redo)
@@ -150,6 +160,15 @@ class MainWindow(QMainWindow):
         self.canvas.set_document(self.doc, base_dir=self._asset_base_dir())
         self.canvas.apply_selection(self.selected_panel_id)
         self._refresh_sidebar()
+        self._update_height_warning()
+
+    def _update_height_warning(self) -> None:
+        limit = presets.MAX_HEIGHT_MM.get(self.doc.target.journal_preset)
+        height = self.doc.target.figure_height_mm
+        over = limit is not None and height > limit
+        tip = (f"Exceeds {self.doc.target.journal_preset} maximum height of "
+               f"{limit:g} mm (publisher figure guidelines)") if over else ""
+        self.topbar.set_height_over_limit(over, tip)
 
     def _asset_base_dir(self) -> Path | None:
         return self.current_path.parent if self.current_path else None
@@ -182,7 +201,7 @@ class MainWindow(QMainWindow):
         rect = next(r for r in self.doc.panel_rects() if r.panel_id == pid)
         panel = panels[pid]
         from pathlib import Path as _P
-        from figspec_designer.model.flatten import effective_dpi
+        from figspec_designer.model.flatten import effective_dpi, format_label
         from figspec.document import resolve_asset
         asset_name = asset_px = eff = None
         dpi_level, missing = "ok", False
@@ -194,7 +213,9 @@ class MainWindow(QMainWindow):
             dpi_level = ("ok" if eff >= floor
                          else "warn" if eff >= 0.67 * floor else "bad")
             missing = resolve_asset(panel.asset, self._asset_base_dir()) is None
-        self.sidebar.show_panel(pid, self.doc.labels()[pid], rect,
+        label_text = format_label(self.doc.labels()[pid],
+                                  self.doc.constraints.panel_label_style)
+        self.sidebar.show_panel(pid, label_text, rect,
                                 self.doc.target.dpi, panel.content_hint,
                                 aspect_lock=panel.aspect_lock,
                                 w_adjustable=self._axis_adjustable(pid, "w"),
@@ -422,12 +443,14 @@ class MainWindow(QMainWindow):
         (preset, width, height, dpi, gutter,
          min_font, max_font, min_lw) = self.topbar.values()
         self.doc.target = Target(preset, width, height, dpi, gutter)
-        # replace(), not Constraints(...) -- the topbar only owns these three
+        # replace(), not Constraints(...) -- the topbar only owns these
         # fields; a fresh Constraints() would silently reset the rest (e.g.
         # min_effective_dpi) to their dataclass defaults on every edit.
+        style = presets.PANEL_LABEL_STYLE.get(
+            preset, self.doc.constraints.panel_label_style)
         self.doc.constraints = dataclasses.replace(
             self.doc.constraints, min_font_pt=min_font, max_font_pt=max_font,
-            min_linewidth_pt=min_lw)
+            min_linewidth_pt=min_lw, panel_label_style=style)
         self.refresh()
 
     def _on_settings_changed(self) -> None:
@@ -470,6 +493,55 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"Layout preview exported to {path}", 3000)
         else:
             self.statusBar().showMessage(f"Could not write {path}", 3000)
+
+    def lint_pdf(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "Lint a finished PDF", "",
+                                              "PDF (*.pdf)")
+        if path:
+            self._start_lint(path)
+
+    def _relint(self) -> None:
+        if self._last_lint_path:
+            self._start_lint(self._last_lint_path)
+
+    def _lint_config(self):
+        """Factored out of _start_lint so tests can assert on the LintConfig
+        without spinning up a worker thread. min_raster_dpi comes from the
+        document's own asset-DPI floor (constraints.min_effective_dpi) --
+        otherwise the lint dock could verdict READY on a PDF whose rasters
+        the sidebar already flags "bad" for falling under that same floor."""
+        from figspec.lint.checks import LintConfig
+        from figspec.units import mm_to_pt
+        return LintConfig(
+            min_font_pt=self.doc.constraints.min_font_pt,
+            min_linewidth_pt=self.doc.constraints.min_linewidth_pt,
+            width_pt=mm_to_pt(self.doc.target.figure_width_mm),
+            min_raster_dpi=self.doc.constraints.min_effective_dpi)
+
+    def _start_lint(self, path: str) -> None:
+        from figspec_designer.ui.lint_runner import LintWorker
+        import tempfile
+        self._last_lint_path = path
+        cfg = self._lint_config()
+        out_dir = tempfile.mkdtemp(prefix="figspec-lint-")
+        self.lint_action.setEnabled(False)
+        self.statusBar().showMessage(f"Linting {path}…")
+        self.lint_dock.show_running(path)
+        self.lint_dock.show()
+        self._lint_worker = LintWorker(path, cfg, out_dir, parent=self)
+        self._lint_worker.finished_ok.connect(self._on_lint_done)
+        self._lint_worker.failed.connect(self._on_lint_failed)
+        self._lint_worker.start()
+
+    def _on_lint_done(self, report: dict, annotated: list) -> None:
+        self.lint_action.setEnabled(True)
+        self.statusBar().showMessage("Lint finished", 3000)
+        self.lint_dock.show_report(report, annotated)
+
+    def _on_lint_failed(self, message: str) -> None:
+        self.lint_action.setEnabled(True)
+        self.statusBar().showMessage("Lint failed", 3000)
+        self.lint_dock.show_error(message)
 
     def save_json(self, path) -> None:
         Path(path).write_text(self.doc.to_json(base_dir=Path(path).parent))
@@ -646,6 +718,13 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:
         if self.confirm_discard():
+            if self._lint_worker is not None and self._lint_worker.isRunning():
+                # Finite work (one PDF lint); waiting beats a qFatal teardown
+                # (Qt aborts the process if a running QThread is destroyed
+                # out from under it -- see LintWorker, parented to self).
+                self._lint_worker.finished_ok.disconnect()
+                self._lint_worker.failed.disconnect()
+                self._lint_worker.wait()
             event.accept()
         else:
             event.ignore()

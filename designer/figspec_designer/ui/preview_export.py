@@ -4,7 +4,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, QRectF
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPen
 
-from figspec_designer.model.flatten import assign_labels, flatten
+from figspec_designer.model.flatten import assign_labels, flatten, format_label
 
 PX_PER_MM = 4.0
 _PAGE = QColor("#FFFFFF")
@@ -25,7 +25,8 @@ def _fits(fm, text: str, rect: QRectF, margin_px: float) -> bool:
             and fm.height() + 2 * margin_px <= rect.height())
 
 
-def render_layout_image(tree, target, *, scale: int = 2) -> QImage:
+def render_layout_image(tree, target, *, scale: int = 2,
+                        label_style: str = "lowercase") -> QImage:
     ppm = PX_PER_MM * scale
     w = round(target.figure_width_mm * ppm)
     h = round(target.figure_height_mm * ppm)
@@ -51,7 +52,7 @@ def render_layout_image(tree, target, *, scale: int = 2) -> QImage:
         painter.setBrush(Qt.NoBrush)
         painter.drawRect(rect)
 
-        letter_text = labels[r.panel_id]
+        letter_text = format_label(labels[r.panel_id], label_style)
         painter.setFont(letter_font)
         if _fits(painter.fontMetrics(), letter_text, rect, margin_px):
             painter.setPen(_LETTER)
@@ -75,4 +76,6 @@ def render_layout_image(tree, target, *, scale: int = 2) -> QImage:
 
 
 def render_layout_png(doc, path, scale: int = 2) -> bool:
-    return render_layout_image(doc.tree, doc.target, scale=scale).save(str(path))
+    img = render_layout_image(doc.tree, doc.target, scale=scale,
+                              label_style=doc.constraints.panel_label_style)
+    return img.save(str(path))

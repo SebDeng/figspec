@@ -29,6 +29,7 @@ class Constraints:
     max_font_pt: float = 8.0
     min_linewidth_pt: float = 0.5
     min_effective_dpi: int = 300
+    panel_label_style: str = "lowercase"
 
 
 @dataclass
