@@ -4,7 +4,6 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 from PySide6.QtCore import QSettings
-from PySide6.QtWidgets import QMessageBox
 from figspec_designer.ui.main_window import MainWindow
 
 
@@ -14,9 +13,8 @@ def _isolated_designer_settings(tmp_path, monkeypatch):
     MainWindow._settings(). Left unpatched, any test that saves or opens a
     file would hit the developer's REAL OS-level QSettings store for org
     "figspec" / app "designer". Point it at an ini file under this test's
-    own tmp_path instead. (test_batch_a_ui.py additionally defines its own
-    copy of this fixture per the task brief; the two simply layer, with
-    whichever applies last winning -- both isolate to a tmp_path ini.)"""
+    own tmp_path instead. This is the single, suite-wide copy of this
+    fixture (test_batch_a_ui.py does not duplicate it)."""
     ini_path = tmp_path / "designer-settings.ini"
     monkeypatch.setattr(
         MainWindow, "_settings",
@@ -27,16 +25,28 @@ def _isolated_designer_settings(tmp_path, monkeypatch):
 def _no_blocking_close_dialog(monkeypatch):
     """pytest-qt's qtbot.addWidget() calls widget.close() on every
     registered widget at test teardown, which fires MainWindow.closeEvent
-    -> confirm_discard(). If the window is dirty -- the common case, since
-    any split or settings change marks it so -- that pops a real, blocking
-    QMessageBox.exec() with nothing able to click it, hanging the whole
-    suite (also observed when the whole QApplication quits with a dirty
-    window still open -- see app.main's --smoke branch). Patch
-    QMessageBox.exec() itself (not MainWindow.confirm_discard) to always
-    resolve to Discard, so confirm_discard()'s own dirty-check logic still
-    runs for real in tests that want to exercise it directly; only the
-    literal blocking call is neutralized. Tests exercising the real
-    Save/Discard/Cancel choice monkeypatch confirm_discard (or this same
-    QMessageBox.exec) again locally, which simply overrides this default
-    for the duration of that test."""
-    monkeypatch.setattr(QMessageBox, "exec", lambda self: QMessageBox.Discard)
+    -> confirm_discard(). If the window is dirty (any split/settings
+    change marks it so -- see _push_tree/_on_settings_changed) that pops a
+    real, blocking QMessageBox.exec() with nothing able to click it,
+    hanging the whole suite. _open_dialog/_open_recent route through
+    confirm_discard() too, for the same reason.
+
+    Patch MainWindow.confirm_discard itself (not the QMessageBox
+    primitive it uses internally) to always return True -- confirm_discard
+    is deliberately factored out and documented as monkeypatchable for
+    exactly this. This is a coarser default than patching QMessageBox.exec
+    (it also short-circuits confirm_discard's own dirty check), but is the
+    narrower, more legible patch surface: it touches only our own class,
+    not a shared Qt primitive, so it can't accidentally swallow an
+    unrelated QMessageBox.exec() call elsewhere. Note QMessageBox.warning()
+    (used to report open errors) is a *static* method that builds and
+    execs its own QMessageBox internally -- an instance-level or
+    class-level patch of confirm_discard has no effect on it, and no
+    current test calls it on a visible window, so it's simply never an
+    issue here.
+
+    Tests exercising the real Save/Discard/Cancel choice monkeypatch
+    confirm_discard again locally (instance-level, which shadows this
+    class-level default), which simply overrides this default for the
+    duration of that test."""
+    monkeypatch.setattr(MainWindow, "confirm_discard", lambda self: True)

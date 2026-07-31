@@ -1,19 +1,18 @@
+import types
 import pytest
-from PySide6.QtCore import QSettings
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 from figspec.layout.tree import iter_panels
 from figspec_designer.ui.main_window import MainWindow
 
+# QSettings isolation for this module is provided by the suite-wide
+# autouse fixture in designer/tests/conftest.py (_isolated_designer_settings);
+# no file-local duplicate here.
 
-@pytest.fixture(autouse=True)
-def _isolated_settings(tmp_path, monkeypatch):
-    """Point MainWindow._settings() at a throwaway ini file so tests never
-    read/write the user's real "figspec"/"designer" QSettings (recent files,
-    last_file). Must run BEFORE any MainWindow is constructed in a test."""
-    ini_path = tmp_path / "s.ini"
-    monkeypatch.setattr(
-        MainWindow, "_settings",
-        lambda self: QSettings(str(ini_path), QSettings.IniFormat))
+# Captured at collection time -- i.e. BEFORE conftest's autouse
+# _no_blocking_close_dialog fixture patches MainWindow.confirm_discard for
+# any given test -- so tests that want to exercise the real
+# confirm_discard() implementation (bypassing that default) can rebind it.
+_REAL_CONFIRM_DISCARD = MainWindow.confirm_discard
 
 
 def _win(qtbot):
@@ -223,3 +222,50 @@ def test_recent_menu_clear_empties_recent_files(qtbot, tmp_path):
     assert win.recent_files() == [str(p)]
     win._clear_recent()
     assert win.recent_files() == []
+
+
+# ---- Post-review fixes ------------------------------------------------------
+
+def test_fresh_window_is_not_dirty(qtbot):
+    win = MainWindow()
+    qtbot.addWidget(win)
+    assert win.dirty is False
+    assert "•" not in win.windowTitle()
+
+
+def test_open_recent_respects_confirm_discard(qtbot, tmp_path, monkeypatch):
+    win, _ = _win(qtbot)
+    assert win.dirty is True
+    doc_before = win.doc
+    other_path = tmp_path / "other.figspec.json"
+    other_path.write_text(win.export_json_text())
+
+    monkeypatch.setattr(win, "confirm_discard", lambda: False)  # user hit Cancel
+    win._open_recent(str(other_path))
+    assert win.doc is doc_before  # cancelled -- current doc untouched
+
+    monkeypatch.setattr(win, "confirm_discard", lambda: True)  # Save or Discard
+    win._open_recent(str(other_path))
+    assert win.doc is not doc_before  # proceeded -- open_json replaced doc
+
+
+def test_save_returns_false_when_ask_save_path_cancelled(qtbot, monkeypatch):
+    win, _ = _win(qtbot)
+    win.current_path = None
+    monkeypatch.setattr(win, "_ask_save_path", lambda: None)  # dialog cancelled
+    assert win.save() is False
+
+
+def test_confirm_discard_save_choice_routes_through_save(qtbot, monkeypatch):
+    win, _ = _win(qtbot)
+    assert win.dirty is True
+    # Rebind the real (unpatched-by-conftest) implementation to this
+    # instance so this test exercises confirm_discard()'s actual
+    # Save/Discard/Cancel logic rather than conftest's always-True default.
+    monkeypatch.setattr(win, "confirm_discard",
+                        types.MethodType(_REAL_CONFIRM_DISCARD, win))
+    monkeypatch.setattr(QMessageBox, "exec", lambda self: QMessageBox.Save)
+    save_calls = []
+    monkeypatch.setattr(win, "save", lambda: save_calls.append(True) or True)
+    assert win.confirm_discard() is True
+    assert save_calls == [True]

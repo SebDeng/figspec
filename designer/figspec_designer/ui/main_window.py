@@ -59,7 +59,12 @@ class MainWindow(QMainWindow):
         self.sidebar.placement_copy_requested.connect(self.copy_placement_table)
 
         self._make_menus()
-        self._on_settings_changed()
+        # Init-time doc/topbar sync only -- NOT _on_settings_changed(),
+        # which additionally marks dirty. A freshly-constructed window with
+        # no user edits must not be dirty (see _sync_settings()).
+        self._sync_settings()
+        self.dirty = False  # belt-and-braces: no _mark_dirty() call above,
+        self._refresh_title()  # but make the clean state explicit anyway.
 
     # ---- menus ------------------------------------------------------
     def _make_menus(self) -> None:
@@ -230,12 +235,20 @@ class MainWindow(QMainWindow):
         except KeyError:
             pass
 
-    def _on_settings_changed(self) -> None:
+    def _sync_settings(self) -> None:
+        """Pull target/constraints from the topbar into self.doc and
+        refresh -- with NO dirty-marking side effect. Used both by
+        __init__ (initial sync from the topbar's own defaults, which must
+        not make a fresh window dirty) and by _on_settings_changed (a real
+        user edit, which does mark dirty)."""
         (preset, width, height, dpi, gutter,
          min_font, max_font, min_lw) = self.topbar.values()
         self.doc.target = Target(preset, width, height, dpi, gutter)
         self.doc.constraints = Constraints(min_font, max_font, min_lw)
         self.refresh()
+
+    def _on_settings_changed(self) -> None:
+        self._sync_settings()
         self._mark_dirty()
 
     # ---- export / open ----------------------------------------------
@@ -361,11 +374,17 @@ class MainWindow(QMainWindow):
         menu.addAction("Clear Menu", self._clear_recent)
 
     def _open_recent(self, path: str) -> None:
+        if not self.confirm_discard():
+            return
         err = self.open_json(path)
         if err and self.isVisible():
             QMessageBox.warning(self, "Cannot open", err)
 
     def _clear_recent(self) -> None:
+        # Deliberately clears only "recent_files" -- "last_file" (used by
+        # the startup-restore hook in app.main) is left untouched, since
+        # "Clear Menu" reads as clearing the visible list, not disabling
+        # next-launch restore.
         self._settings().remove("recent_files")
 
     def confirm_discard(self) -> bool:
@@ -397,6 +416,8 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(self, "Open figspec.json", "",
                                               "figspec JSON (*.json)")
         if not path:
+            return
+        if not self.confirm_discard():
             return
         err = self.open_json(path)
         if err and self.isVisible():

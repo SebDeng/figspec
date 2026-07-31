@@ -24,15 +24,14 @@ def main(argv: list[str] | None = None) -> int:
         win.open_json(last_file)
     win.show()
     if smoke:
-        # A freshly-constructed MainWindow is already "dirty" (its
-        # trailing __init__ call to _on_settings_changed() marks it so,
-        # per the file-lifecycle contract), and on this Qt build,
-        # app.quit() drives a real closeEvent on visible top-level windows
-        # -> confirm_discard() -> a blocking QMessageBox with nobody able
-        # to click it, hanging this headless boot-check forever. --smoke
-        # only verifies the app can construct/show/exit cleanly -- it
-        # isn't exercising the close-guard -- so mark clean before quitting.
-        win.dirty = False
+        # A fresh MainWindow (and a no-op/failed restore above) is never
+        # dirty, so app.quit() below drives an ordinary closeEvent ->
+        # confirm_discard() fast path (not dirty -> True) with no modal.
+        # If that ever stops being true, this headless boot-check would
+        # hang forever on a QMessageBox nobody can click -- see
+        # MainWindow.confirm_discard / the designer test suite's
+        # _no_blocking_close_dialog fixture for the same concern under
+        # pytest.
         QTimer.singleShot(0, app.quit)
         app.exec()
         return 0
