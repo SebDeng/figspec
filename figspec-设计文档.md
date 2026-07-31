@@ -2,7 +2,7 @@
 
 **作者**：SebDeng
 **日期**：2026-07-30
-**状态**：Draft v0.2（构思阶段；v0.1 → v0.2 变更见文末）
+**状态**：Draft v0.3（构思阶段；v0.1 → v0.2 → v0.3 变更见文末。v0.3 吸收三路架构/渲染/agent 经济学评审与渲染 spike 实证结果）
 
 ---
 
@@ -54,15 +54,21 @@ MatPlotAgent（代码 LLM + 多模态 LLM 作图 agent，带视觉反馈迭代�
 
 空位明确：没有一个工具把"人用眼睛定版式"、"机器按 spec 出图"、"成品按 spec 校验"用同一份数据串起来，更没有工具把 figure 当作可增量重渲染的持久对象。FigureFirst 证明了 layout-first 可行，tueplots 证明了场合感知参数化可行，MatPlotAgent 一系证明了 agent 出图 + 视觉反馈可行——三者互不连通。FigSpec 做的是扣起三环的 spec，和围绕它的渲染核心。
 
+### 2.5 实现现状（2026-07-30）
+
+Linter 已作为 `figspec` 包 + `figspec lint` CLI 发布（有效字号/线宽/DPI 校验、pikepdf 自研解释器、Form XObject 递归）；Designer 已作为 PySide6 macOS 应用发布（分割树画布、期刊预设与每预设约束、figspec.json 导出/往返、签名分发管线）；期刊预设数值经四社官方一手来源核验（见 `docs/journal-figure-specs.md`）。本文档后续章节的 server/渲染部分为待建内容。
+
 ## 3. 产品定位与设计原则
 
-FigSpec 是一个本地 figure server：核心状态（spec、panel 源、渲染产物、lint 报告）住在 server 里，人和 AI agent 是它的两个平权客户端。人类原生（GUI 拖拽、Illustrator 兼容）与 AI 原生（MCP 接口、结构化报告）从第一天起同时成立，而不是先做人的工具再补 agent 接口。五条设计原则：
+FigSpec 是一个本地 figure server：人和 AI agent 是它的两个平权客户端。人类原生（GUI 拖拽、Illustrator 兼容）与 AI 原生（MCP 接口、结构化报告）从第一天起同时成立，而不是先做人的工具再补 agent 接口。六条设计原则：
 
-**Spec 是唯一事实源。** 版式、物理尺寸、DPI、字号约束全部写在一份 JSON 里。所有客户端读写同一份状态，从结构上消灭"设计时说好 6 pt、检查时按 5 pt 放行"式的口径不一致，也消灭截图确认循环——agent 想知道现状调工具即可，不需要用户用嘴同步。
+**项目目录是持久真相，server 是物化视图。** figspec.json、panels/ 源码、assets/ 资产全部住在项目目录里、进 git；server 只是它们之上的构建守护进程（渲染缓存、lint 报告等派生物放 `.figspec/cache/`，gitignore）。server 崩溃 = 零数据丢失，重启 = 重扫描。这一条决定了协作语义（git 是版本真相）、崩溃语义（无内存权威）和多客户端引导（谁先起谁拉起守护进程）。
 
-**智能与执行分离。** Agent 的产出物不是"一张图"，而是以几何为参数的 panel 源函数。几何调整（改尺寸、挪位置）是 server 的确定性重执行，亚秒级、零 token；agent 只在语义变化（改内容、改样式逻辑）时被调用。一轮对话是一次性投资，买到的是可复用的参数化源。
+**Spec 是唯一事实源。** 版式、物理尺寸、DPI、字号约束全部写在一份 JSON 里。所有客户端读写同一份状态，从结构上消灭"设计时说好 6 pt、检查时按 5 pt 放行"式的口径不一致，也消灭截图确认循环——agent 想知道现状调工具即可，不需要用户用嘴同步。并发由 spec 级单调 revision 保障：`update_spec(patch, base_revision)` 过期即冲突拒绝，GUI 拖拽手势期间对被拖路径持短租约，双向变更通知（GUI 走 WebSocket，MCP 走 resource 订阅）。
 
-**Figure 是模块化的，不是单体。** 整图一把梭的生成方式使任何局部修改都要求 agent 装载全图上下文。FigSpec 把 figure 分解为 spec（接口，几百 token）+ 独立 panel 源（编译单元）+ panel 内的层（最小重渲染粒度），agent 的工作上下文永远只有当前任务涉及的那一小块，且视觉信息是按需拉取（pull）而非用户推送（push）。
+**智能与执行分离。** Agent 的产出物不是"一张图"，而是以几何为参数的 panel 源函数。几何调整的**执行**是 server 的确定性重执行，亚秒级、零 token；几何变化引发的**布局劣化**（aspect 改变后图例压线、标注遮挡）才值得一轮对话——server 渲染后做廉价的包围盒重叠/裁切检测，把劣化变成结构化信号而非静默变丑。一轮对话是一次性投资，买到的是可复用的参数化源。
+
+**Figure 是模块化的，不是单体。** 整图一把梭的生成方式使任何局部修改都要求 agent 装载全图上下文。FigSpec 把 figure 分解为 spec（接口）+ 独立 panel 源（编译单元），agent 的工作上下文永远只有当前任务涉及的那一小块，且视觉信息是按需拉取（pull）而非用户推送（push）。上下文经济的正确口径是**比值**而非绝对值：读状态数百 token；改一个 panel（spec + 契约 skill + 数据窥探 + 源码读写 + 数轮受限尺寸 preview）约 6–15k token；单体整图方案数万 token 且每轮重付。省的大头在"跨轮免重述"——server 持状态，agent 不必每轮重贴代码。
 
 **对现有工作流零强制迁移。** 不要求放弃 Illustrator，不要求全程代码拼版。只用 lint，就是投稿前检查器；只用 Designer + 渲染，就是尺寸精确的出图助手；全用，就是闭环。
 
@@ -70,31 +76,35 @@ FigSpec 是一个本地 figure server：核心状态（spec、panel 源、渲染
 
 ## 4. 系统设计
 
-### 4.1 总体架构：一个核心，三张脸
+### 4.1 总体架构：单守护进程，三张脸
 
 ```
         ┌──────────────┐   ┌──────────────┐   ┌──────────────┐
         │  GUI(人类)    │   │  MCP(agent)  │   │  CLI(自动化)  │
-        │ Designer/预览 │   │ tools + res. │   │ figlint / CI │
-        └──────┬───────┘   └──────┬───────┘   └──────┬───────┘
+        │ PySide6      │   │  stdio 瘦代理 │   │ figspec / CI │
+        │ Designer/预览 │   │ tools + res. │   │  独立模式保留 │
+        └──────┬───────┘   └──────┬───────┘   └──────┬──────┘
+            WS │            连接或拉起 │               │
                └───────────────┬──┴──────────────────┘
                        ┌───────┴────────┐
-                       │  FigSpec Server │
-                       │  · spec 状态    │
-                       │  · 渲染引擎     │←─ 分层缓存 (content hash)
-                       │  · lint 引擎    │
-                       │  · watch folder │←─ Illustrator 导出 final.pdf
+                       │ FigSpec 守护进程 │  每项目一个
+                       │ · spec + revision│  .figspec/server.lock (port+pid)
+                       │ · 渲染引擎      │←─ 缓存 (.figspec/cache/, content hash)
+                       │ · lint 引擎     │
+                       │ · watch folder  │←─ Illustrator 导出 final.pdf
                        └───────┬────────┘
-                        panel sources (参数化函数) + assets (渲染图等)
+                项目目录（持久真相）: figspec.json + panels/ + assets/
 ```
 
-所有能力在核心库实现一次：GUI 给人，MCP 给 agent，CLI 给脚本和 CI。人拖动 Designer 分隔线与 agent 调 `update_spec()` 走的是同一条状态变更路径，任一侧的修改另一侧实时可见。
+**实例模型是这版架构唯一不能妥协的地基**：MCP server 通常被 agent host 以 stdio 拉起，若把引擎直接嵌进 stdio 进程，GUI 无处可连、两个实例即 split-brain，"人机共享同一份状态"第一天就失效。因此引擎住在**每项目单守护进程**里（`.figspec/server.lock` 记录 port+pid），MCP stdio 层是瘦代理：发现已有守护进程就连接，没有就拉起。这同时回答了多项目并存（按项目目录 scope）与"agent 调用时 server 没跑"（代理自动拉起）。所有能力在核心库实现一次：GUI 给人，MCP 给 agent，CLI 给脚本和 CI。人拖 Designer 分隔线与 agent 调 `update_spec()` 走同一条带 revision 的状态变更路径，任一侧修改经变更通知对另一侧实时可见。
+
+Watch folder 的生命周期要点：Illustrator 写 PDF 非原子，需 mtime 静默去抖；守护进程停机期间的导出靠启动时 mtime 对账补 lint。
 
 ### 4.2 Spec 数据结构（草案）
 
 ```json
 {
-  "figspec_version": "0.2",
+  "figspec_version": "0.3",
   "target": {
     "journal_preset": "nature_double",
     "figure_width_mm": 183,
@@ -103,8 +113,8 @@ FigSpec 是一个本地 figure server：核心状态（spec、panel 源、渲染
     "gutter_mm": 4
   },
   "constraints": {
-    "min_font_pt": 6, "max_font_pt": 8,
-    "min_linewidth_pt": 0.5,
+    "min_font_pt": 5, "max_font_pt": 7,
+    "min_linewidth_pt": 0.25,
     "min_effective_dpi": 300,
     "font_family": "Helvetica",
     "panel_label_style": "lowercase"
@@ -114,9 +124,8 @@ FigSpec 是一个本地 figure server：核心状态（spec、panel 源、渲染
       "label": "a",
       "type": "generated",
       "x_mm": 0, "y_mm": 0, "w_mm": 89.5, "h_mm": 50,
-      "row_span": 1, "col_span": 1,
       "source": "panels/a/draw.py",
-      "layers": ["data", "frame", "annotations", "legend"],
+      "layers": ["frame_below", "data", "frame_above", "annotations", "legend"],
       "content_hint": "atom displacement statistics"
     },
     {
@@ -128,11 +137,14 @@ FigSpec 是一个本地 figure server：核心状态（spec、panel 源、渲染
       "overlay_source": "panels/b/overlay.py",
       "content_hint": "AC-STEM image, human-placed"
     }
-  ]
+  ],
+  "designer": { "tree": { "…": "布局树 sidecar，供 Designer 往返编辑，其他工具忽略" } }
 }
 ```
 
-`type` 区分两类 panel：`generated`（参数化源，server 可重渲染）与 `external`（渲染图、显微图、照片等非生成资产，人工放置，server 只做合成与校验）。像素值一律由 mm × DPI 派生，mm 是权威值。`source` 指回源文件，使 lint 报告和 agent 的修改都能精确定位。
+`type` 区分两类 panel：`generated`（参数化源，server 可重渲染）与 `external`（渲染图、显微图、照片等非生成资产，人工放置，server 只做合成与校验）。像素值一律由 mm × DPI 派生，mm 是权威值；坐标约定为左上原点、y 向下（已在 `figspec/spec.py` 固化为规范）。`source` 指回源文件，使 lint 报告和 agent 的修改都能精确定位。`type` 省略时语义为"仅版式占位"，因此已发布的 0.1 格式文件天然前向兼容。
+
+**多客户端兼容铁律**：解析器按版本分派且**必须容忍未知键**；任何工具改写 spec 时**必须保留自己不认识的顶层段**（否则 agent 的一次 `update_spec` 会悄悄剥掉 `designer.tree`）。constraints 示例值即 Nature 预设（已发布的每预设约束表见 `docs/journal-figure-specs.md`）。
 
 ### 4.3 Panel 源的参数化契约
 
@@ -145,15 +157,23 @@ def draw(fig, ax, geometry, style):
     ...
 ```
 
-代码中禁止硬编码 figsize、字号、线宽——这是 agent skill 强制执行的契约，也是"改 200 px 到 250 px 不需要对话"得以成立的前提：resize 只是 server 用新 geometry 重调这个函数。图例位置、标注坐标必须显式给定（禁用 `loc="best"` 这类数据依赖的自动放置），原因见 4.4 的依赖分析——这本来也是出版图的最佳实践，工具顺便强制了好习惯。
+契约的执行分三层，缺一不可：
 
-### 4.4 分层增量渲染
+**结构性预防**：fig/ax 由 server 创建后注入——figsize 硬编码在结构上不可能；尺寸类数值只能从 style 对象取，源码中的字号/线宽数字字面量直接被 lint。
 
-每个 generated panel 内部再分层：数据层（真正昂贵的部分）、坐标框架层（axes/tick/spine）、标注层、图例层。各层以相同 viewBox、透明背景独立输出 SVG，合成是纯 z 轴堆叠，几何对齐由 spec 保证。每层对其输入（数据文件哈希 + 层源码哈希 + geometry + style）计算 content hash，任何变更进来时 server 只重渲染 hash 脏了的层——与增量编译同构。
+**静态校验**：`validate_source` 检查显式放置——注意 `legend()` **不带参数的默认值就是 `loc='best'`**，因此规则不是"禁止字符串 best"而是"必须显式给出 loc"；同族禁令覆盖 `tight_layout`/`constrained_layout`/`bbox_inches='tight'`（它们会破坏分层几何对齐，见 4.4）。静态校验约能拦八九成，agent 肌肉记忆写 `plt.legend()` 时报错文案要可执行（"缺 loc=，契约要求显式位置"），通常一轮收敛。
 
-依赖传播要诚实处理：数据变更可能改变轴范围，因此"数据 extent"本身是一个构建产物，coordinate 层对它声明依赖，变了就正确地连带变脏。Panel 改尺寸（aspect 变化）时数据层必须重画，这物理上绕不开，但仍是零对话的本地重执行；纯移动位置则是零重渲染的合成操作。External panel 是天然的底层，其上的 scale bar、标注是 overlay 层——改一个 scale bar 字号再也不用碰那张渲染了半小时的图。
+**性质测试兜底**：用两组 geometry 各渲一次，若 legend/annotations 层的输出随数据或几何漂移，即为隐式依赖违约——比任何静态规则都难绕过。
 
-分层的隐性收益是稳定性：未动的层 bit 级不变，产物 diff 干净，lint 结果可按层缓存。
+显式放置本来也是出版图的最佳实践，工具顺便强制了好习惯。
+
+### 4.4 分层渲染模型（分层为 v1 合成语义，增量缓存降为 v2）
+
+分层的正确切法是**五层**而非四层——spike 实证发现 grid 的 z 序在数据之下、spines 在数据之上，"坐标框架"一层在 z 序上是错的：`frame_below`（axes patch + grid）→ `data` → `frame_above`（spines/ticks/labels）→ `annotations` → `legend`。各层以相同 viewBox、透明背景独立输出 SVG，合成是纯 z 轴堆叠。
+
+分层成立的渲染纪律（全部经 matplotlib spike 验证）：固定 figsize + 显式 axes 定位，**禁用 tight/constrained layout**（它们按 artist 边界改几何，各层 viewBox 会分道扬镳）；渲染前先做一次 **extent 计算 pass**——"数据 extent"本身是构建产物，坐标层对它声明依赖，数据变了 frame 层正确连带变脏（否则复用缓存的 frame 会产生真实几何错位，不只是刻度文字过期）；确定性归一化（固定 `svg.hashsalt`、元数据去时间戳）后同输入跨进程逐字节一致，content-hash 缓存地基成立；每层 = 全量构建 + 可见性掩码 + 独立导出，单 panel 全渲成本约 5× 单次绘制，增量收益只在跨编辑复用时兑现。
+
+**工程排序上，层级 content-hash 增量缓存降为 v2**：它是全文档投机性最强的部分，而其价值前提"panel 渲染很贵"对典型 1–3 秒的 panel 不成立（大散点/imshow 用 `rasterized=True` 在平渲染里就地解决）。v1 先做**不分层的整 panel 重渲染**——零对话 resize 的主张靠参数化契约就已成立，不依赖分层。spec 保留 `layers` 字段做前向兼容。External panel 天然是底层，其上的 scale bar、标注是 overlay 层——改一个 scale bar 字号不再碰渲染了半小时的图（overlay 复用 generated 渲染机器，随 v1.5 落地）。分层的隐性收益是稳定性：未动的层 bit 级不变，产物 diff 干净，lint 结果可按层缓存。
 
 ### 4.5 MCP 接口（草案）
 
@@ -161,24 +181,28 @@ Tools：
 
 | tool | 作用 |
 |---|---|
-| `get_spec()` / `update_spec(patch)` | 读/改版式与约束，改动触发增量重渲染并同步 GUI |
-| `get_panel_source(label)` / `put_panel_source(label, code)` | 读写某 panel 的参数化源 |
-| `render(label, layer?)` | 触发渲染（通常由状态变更自动触发，此为显式入口） |
-| `get_panel_preview(label)` | 返回该 panel 当前渲染预览（图片直接进上下文，取代用户截图） |
-| `lint(target?)` | 对当前合成或 watch folder 里的 final.pdf 跑校验，返回结构化报告 + 标注图 |
+| `get_spec()` | 读 spec（含当前 revision） |
+| `update_spec(patch, base_revision)` | JSON Merge Patch 改版式与约束；revision 过期即冲突拒绝；返回新 spec 免二次读取 |
+| `get_panel_source(label)` / `put_panel_source(label, code)` | 读写某 panel 的参数化源。put 一响应三事：契约校验结果（违规明细）、渲染结果（含 traceback）、preview 就绪——省掉 put→render→查错三轮往返 |
+| `validate_source(label, code)` | 写盘前的契约预检，错误文案可执行 |
+| `render(label?)` | 显式触发渲染（通常由状态变更自动触发） |
+| `get_panel_preview(label, max_px=800)` | 单 panel 预览，默认限长边 800px（约 0.6–0.9k token），全分辨率显式要 |
+| `get_figure_preview()` | 整图合成预览——看整体观感时一张图优于 N 张 panel 图 |
+| `lint(target?, panel?)` | 对当前合成或 watch folder 的 final.pdf 跑校验，支持单 panel 作用域；报告 JSON 与已发布 figlint 的 finding 格式同构 |
+| `revert(revision)` | 回滚 spec（panel 源靠 server 自动 git commit 兜底） |
 | `list_assets()` | 列出 external 资产及其原始像素尺寸 |
 
-Resources：`figspec://spec`（当前 spec）、`figspec://report`（最新 lint 报告）、`figspec://panels/{label}/preview`。
+Resources：`figspec://spec`、`figspec://report`、`figspec://panels/{label}/preview`，支持订阅通知。
 
-截图确认循环由此消失：figure 的当前状态不再只存在于用户屏幕上，agent 拉取即得，且按需拉取（平时只持有几百 token 的 spec，需要看哪个 panel 才调 preview），上下文永远只装当前任务那一块。
+源码读写粒度为 **panel 级**（一 panel 一文件，层是文件内的命名函数）——不提供层级读写接口，诚实换简单。截图确认循环由此消失：figure 状态不再只存在于用户屏幕上，agent 拉取即得、按需拉取，上下文永远只装当前任务那一块。
 
 ### 4.6 Designer（人类前端）
 
-Web GUI（已有原型验证行列网格 + 拖拽调整 + 三套数值实时显示 + 一键导出）。作为 server 客户端后的增强：版式改动即时触发受影响 panel 的本地重渲染，画布里看到的就是真实产物而非灰框占位；期刊预设（Nature 89/183、ACS 82.5/178、APS 86/172 mm 等）；v1 支持 span 覆盖 L 型布局。自由矩形 + 吸附留到后续，优先守住 spec 简单性。
+**PySide6 桌面应用（已发布）**：分割树画布 + 自定义分隔条（实时 mm 反馈、0.5mm 吸附）+ 期刊预设与每预设约束 + 三套数值检查器 + undo/redo + figspec.json 导出/往返 + Developer ID 签名分发管线。接入 server 后的增强：版式改动即时触发受影响 panel 的本地重渲染，画布里看到的就是真实产物而非灰框占位。协议做成客户端无关（HTTP+JSON/WS），Web 客户端留作未来选项而非重写目标；Designer 保留单机模式（"零强制迁移"原则推广到 GUI 自身）。自由矩形 + 吸附留到后续，优先守住 spec 简单性。
 
-### 4.7 Linter（校验引擎）
+### 4.7 Linter（校验引擎，已发布）
 
-原理：PDF 中每个文字对象携带完整变换矩阵（CTM），有效字号 = 名义字号 × 累积缩放，线宽同理，可精确计算——这绕开 Illustrator 工作流的盲区：linked PDF 被缩放后，AI 字号面板显示的仍是源文件名义值。按 spec 的 panel 坐标把元素归属到对应 panel。
+原理：PDF 中每个文字对象携带完整变换矩阵（CTM），有效字号 = 名义字号 × 累积缩放，线宽同理，可精确计算——这绕开 Illustrator 工作流的盲区：linked PDF 被缩放后，AI 字号面板显示的仍是源文件名义值。已以 `figspec lint` CLI 发布（pikepdf 自研内容流解释器、Form XObject 递归、TrimBox 感知、旋转文字奇异值处理）；spec 模式下按 panel 坐标把元素归属到对应 panel（待建）。
 
 检查项按 panel 类型分工：vector 内容查有效字号、有效线宽、字体嵌入；raster 内容（external panel 及任何位图）查放置后有效 DPI（如 2000 px 宽的渲染图放进 60 mm panel 约 850 dpi 安全，被拉到 120 mm 只剩约 420 dpi，逼近 `min_effective_dpi` 即报）；叠加在渲染图上的 scale bar、标注在成品 PDF 里是 text object，同样被字号检查覆盖。另查总尺寸与 spec 一致性、panel 标签风格。
 
@@ -190,44 +214,50 @@ Watch folder 集成：用户从 Illustrator 导出 final.pdf 到被监视目录�
 
 **新 figure（完整闭环）**：Designer 拖出版式 → spec 入 server → agent 按契约为各 generated panel 写参数化源 → server 渲染 → 用户将 external 资产与各 panel 产物在 Illustrator 里 1:1 拼版 → 导出到 watch folder → 自动 lint → 违规项由 agent 读报告改源、server 重渲染，人只重拼受影响的 panel。
 
-**几何微调（零对话路径）**：拖 Designer 分隔线 / 改行高 → server 以新 geometry 重执行受影响 panel 的脏层 → 预览即时更新。全程无 agent 参与、无 token 消耗。
+**几何微调（零对话路径）**：拖 Designer 分隔线 / 改行高 → server 以新 geometry 重执行受影响 panel → 预览即时更新。全程无 agent 参与、无 token 消耗；若 aspect 变化引发布局劣化（图例压线等），包围盒检测把它变成结构化信号，由用户决定是否召回 agent 修一轮。
 
-**语义修改（agent 路径）**：“把 panel c 图例移到右上、文案改成 pristine/irradiated” → agent 拉 spec + panel c 的 legend 层源 → 改代码写回 → server 只重渲染 legend 层。上下文 = spec + 一个层的源。
+**语义修改（agent 路径）**："把 panel c 图例移到右上、文案改成 pristine/irradiated" → agent 拉 spec + panel c 的源 → 改代码写回（put 一响应三事）→ server 重渲染。上下文 = spec + 一个 panel 的源。
 
-**存量稿件抢救（最低摩擦入口）**：不改任何习惯，`figlint final.pdf --width 183mm --min-font 6`（无 spec 独立模式），拿标注图逐个修。获客路径——lint 的价值第一次使用即兑现。
+**存量稿件抢救（最低摩擦入口）**：不改任何习惯，`figspec lint final.pdf --width 183 --min-font 5`（无 spec 独立模式，已可用），拿标注图逐个修。获客路径——lint 的价值第一次使用即兑现。
 
-## 6. MVP 与路线图
+## 6. MVP 与路线图（按已发布现状重排）
 
-**MVP：核心库 + MCP 包装。** 与 v0.1 的"先做孤立 CLI"不同——既然决定 AI 原生从第一天成立，MVP 就是核心库（spec schema、尺寸换算、lint 引擎）加薄薄一层 MCP（FastMCP 一类框架下每个核心函数包一层即一个 tool），CLI 与 GUI 是后包的皮。Lint 先行的理由不变：零侵入、价值即时、手头稿子马上能用。
+Lint 核心与 Designer 已发布，"核心库 + MCP"的正确切法是：
 
-**v1**：参数化契约 + generated panel 渲染 + 分层缓存；Designer 接入 server 并支持 span；watch folder；lint 按 panel 归属报告。闭环打通。
+**M0（天级）**：`figspec-mcp`——FastMCP 瘦层包装已发布能力：lint、spec 读写、布局树操作（现居 `figspec_designer/model/` 的纯函数上移为 `figspec/layout/`，agent 与 server 共用）。不含渲染引擎，state = 项目目录文件，无守护进程也成立——4.1 的"地基不可妥协"约束自共享可变状态出现（渲染引擎、GUI 接入，即 M2）起生效，M0 的无状态文件操作不在其射程。"AI 原生"立刻为真。
 
-**v2**：反向导入（解析既有 AI/PDF 的 placed object 变换矩阵，反推实际版式生成初始 spec，与 lint 共用 PDF 解析代码）；检查项扩展；期刊预设库社区化；FigureFirst SVG → figspec 转换器。
+**M1**：渲染引擎第一根垂直切片——参数化契约 skill + `validate_source` + **不分层**的 geometry 注入渲染 + 限尺寸 preview；external panel 的便宜半（type/asset_px 进 spec、有效 DPI 按 panel 归属——lint 侧已实现大半）。
 
-## 7. 技术选型（初步）
+**M2**：守护进程 + revision 并发 + watch folder + `get_figure_preview` + 布局劣化检测；Designer 接入 server。
 
-核心与 server：Python；MCP 层用 FastMCP；渲染为 matplotlib headless 重执行（同 figsize、同 axes position 下按 artist 分组输出透明 SVG 实现分层）；缓存为文件系统 content-addressed。PDF 解析：PyMuPDF（性能与 graphics state 访问完整）或 pdfminer.six（纯 Python 易分发），标注图用 PyMuPDF 渲染 + Pillow 叠加。GUI：Web（原型为原生 JS，产品化可 React），作为 server 的前端。三组件共享 `figspec` schema 包（含 JSON Schema 校验）。
+**v2**：层级 content-hash 增量缓存；overlay_source；反向导入（解析既有 AI/PDF 的 placed object 变换矩阵反推版式，与 lint 共用解析代码）；检查项扩展；期刊预设库社区化；FigureFirst SVG → figspec 转换器。
+
+## 7. 技术选型
+
+核心与 server：Python；MCP 层用 FastMCP（stdio 瘦代理 + 每项目守护进程，见 4.1）；渲染为 matplotlib headless 重执行，确定性归一化（固定 `svg.hashsalt`、元数据去时间戳）为 content-hash 前提；缓存为文件系统 content-addressed（`.figspec/cache/`）。PDF 解析：**pikepdf + 自研内容流解释器（已发布并验证）**，标注图用 pypdfium2 渲染 + Pillow 叠加——宽松协议全链路。GUI：PySide6（已发布，含签名分发管线）。三组件共享 `figspec` schema 包（`figspec/spec.py`，含坐标约定规范）。
 
 ## 8. 风险与开放问题
 
-**文字被转曲的 PDF**。Illustrator 导出若 outline 文字，lint 拿不到 text object，只能退化为"检测疑似文本的细小路径群并警告"。缓解：skill 与文档明确建议导出保留文字。
+**文字被转曲的 PDF**。Illustrator 导出若 outline 文字，lint 拿不到 text object，只能退化为"检测疑似文本的细小路径群并警告"。缓解：skill 与文档明确建议导出保留文字（已发布的 TEXT-PRESENT 检查覆盖告警半）。
 
-**Type 3 字体与旋转文字**。部分 matplotlib 配置以 Type 3 嵌字，字号计算路径不同；旋转文字的有效字号取矩阵奇异值。工程可解，需测试集覆盖。
+**并发写的实现精度**。revision + 租约 + 变更通知的模型已定（4.1/4.5），但拖拽手势与 agent patch 的合并粒度（不相交 patch 可自动合并到什么程度）需要实现期校准，宁可先粗（整 spec 级锁）后细。
 
-**matplotlib 自动行为打穿分层**。`loc="best"` 等数据依赖放置引入隐式数据→图例依赖边。对策：契约禁用自动放置（4.3），server 校验源码合规。
+**契约执法的剩余一成**。静态校验拦不住的隐式依赖靠双几何性质测试兜底，但性质测试有成本（双渲染），触发时机（每次 put 还是抽查）待定。
 
 **panel 归属鲁棒性**。成品 PDF 元素坐标与 spec 可能有出入（用户微调过），归属算法需容差与"无法归属"兜底。
 
-**Server 常驻的接受度**。本地 server + watch folder 比一次性 CLI 重。缓解：CLI 独立模式保留，server 按需启动。
+**Server 常驻的接受度**。本地守护进程 + watch folder 比一次性 CLI 重。缓解：CLI 独立模式保留（已发布）、M0 的 MCP 无守护进程也可用、守护进程按需拉起。
 
-**Designer 表达力 vs. spec 简单性**。行列 + span 守住 v1，收集真实版式样本再决定是否引入自由矩形。
+**Designer 表达力 vs. spec 简单性**。分割树 + 绝对矩形导出已发布并验证（span 由树天然覆盖）；自由矩形收集真实版式样本再定。
 
 **与 FigureFirst 的关系**。理念同源，文档致谢并提供迁移转换器，吸纳存量用户而非对立。
 
 ---
 
-## 附：v0.1 → v0.2 变更记录
+## 附：变更记录
 
-其一，架构从"三个松散组件"改为 server-centric：一个本地 server 持有全部状态，GUI/MCP/CLI 三客户端，人机双原生从第一天成立，MVP 相应改为核心库 + MCP。其二，新增设计原则"智能与执行分离"与 panel 源参数化契约：agent 产出参数化函数而非图，几何调整走零对话的本地重执行。其三，新增分层增量渲染模型（层级 content hash 缓存、依赖传播、显式放置要求）。其四，panel 增加 `type` 字段区分 generated/external，raster 内容纳入有效 DPI 校验，人工放置成为架构一等公民。其五，新增"per-panel 分解与上下文经济"论证：spec 是 agent 上下文的隔离边界，视觉信息按需拉取。
+**v0.1 → v0.2**：其一，架构从"三个松散组件"改为 server-centric：一个本地 server 持有全部状态，GUI/MCP/CLI 三客户端，人机双原生从第一天成立，MVP 相应改为核心库 + MCP。其二，新增设计原则"智能与执行分离"与 panel 源参数化契约：agent 产出参数化函数而非图，几何调整走零对话的本地重执行。其三，新增分层增量渲染模型（层级 content hash 缓存、依赖传播、显式放置要求）。其四，panel 增加 `type` 字段区分 generated/external，raster 内容纳入有效 DPI 校验，人工放置成为架构一等公民。其五，新增"per-panel 分解与上下文经济"论证：spec 是 agent 上下文的隔离边界，视觉信息按需拉取。
 
-*本文档基于 2026-07 的原型讨论与公开资料调研；相关项目现状以当时可查证信息为准。*
+**v0.2 → v0.3**（吸收架构/渲染可行性/agent 经济学三路评审与 matplotlib spike 实证）：其一，声明持久化模型：项目目录是持久真相，server 降格为物化视图 + 构建守护进程，新增第一设计原则。其二，定实例模型：每项目单守护进程 + MCP stdio 瘦代理 + lock 文件，并发写引入 spec revision/租约/变更通知。其三，渲染模型按 spike 结果修正：分层从四层改五层（z 序实证）、写明渲染纪律（禁 tight/constrained、extent 计算 pass、确定性归一化、约 5× 成本）；层级增量缓存从 v1 降为 v2，v1 用不分层整 panel 重渲染。其四，契约执法三层化（结构性预防/静态校验/双几何性质测试），修正 `legend()` 默认即 'best' 的规则口径。其五，MCP 接口修订：update_spec 带 base_revision、put 一响应三事、新增 validate_source/get_figure_preview/revert、preview 默认限尺寸、源码读写收敛为 panel 级。其六，MVP 按已发布现状重排为 M0（MCP 包现有能力）/M1（平渲染垂直切片）/M2（守护进程与并发）/v2。其七，上下文经济改为比值口径；GUI 定为 PySide6（已发布）；spec 删除 row_span/col_span、增加版本兼容铁律与 designer sidecar；技术选型更新为已验证的 pikepdf/pypdfium2 栈。删除"零 token resize"的绝对化表述，改为"执行零对话，布局劣化可检测、可选择性召回 agent"。其八，随实现落地的文档更新：§2 新增"实现现状"小节；§4.2 constraints 示例值更新为已发布的 Nature 预设（5/7/0.25）；v0.2 的"Type 3 字体与旋转文字"风险因 linter 已实现（fonttype 3/42 平行测试、奇异值处理）而移除；§5 存量稿件 CLI 语法更新为已发布形式。
+
+*本文档基于 2026-07 的原型讨论、公开资料调研与仓库内已发布组件的实证；相关项目现状以当时可查证信息为准。*
