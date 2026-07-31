@@ -24,12 +24,39 @@ def _error(msg: str, **extra) -> dict:
     return {"error": msg, **extra}
 
 
+def _write_text(path: str, text: str) -> dict | None:
+    """Write text; returns an error dict on failure, None on success."""
+    try:
+        Path(path).write_text(text)
+    except OSError as e:
+        return _error(f"cannot write {path}: {e}")
+    return None
+
+
+def _coerce_float(name: str, value):
+    """Returns (float_value, None) or (None, error_dict)."""
+    try:
+        return float(value), None
+    except (TypeError, ValueError):
+        return None, _error(f"{name} must be a number, got {value!r}")
+
+
 def lint_pdf_impl(pdf_path: str, width_mm: float | None = None,
                   min_font_pt: float = 5.0, min_linewidth_pt: float = 0.25,
                   strict: bool = False) -> dict:
+    if width_mm is not None:
+        width_mm, err = _coerce_float("width_mm", width_mm)
+        if err:
+            return err
+    min_font_pt, err = _coerce_float("min_font_pt", min_font_pt)
+    if err:
+        return err
+    min_linewidth_pt, err = _coerce_float("min_linewidth_pt", min_linewidth_pt)
+    if err:
+        return err
     cfg = LintConfig(min_font_pt=min_font_pt, min_linewidth_pt=min_linewidth_pt)
     if width_mm is not None:
-        cfg.width_pt = mm_to_pt(float(width_mm))
+        cfg.width_pt = mm_to_pt(width_mm)
     try:
         doc = extract(pdf_path)
     except LintInputError as e:
@@ -57,7 +84,9 @@ def write_spec_impl(spec_path: str, spec: dict) -> dict:
         parse_spec(spec)
     except SpecError as e:
         return _error(f"invalid spec, not written: {e}")
-    Path(spec_path).write_text(json.dumps(spec, indent=2) + "\n")
+    err = _write_text(spec_path, json.dumps(spec, indent=2) + "\n")
+    if err:
+        return err
     return {"written": spec_path}
 
 
@@ -66,13 +95,18 @@ def new_spec_impl(spec_path: str, preset: str = "nature_double",
     if preset not in presets.PRESETS:
         return _error(
             f"unknown preset {preset!r}; valid: {', '.join(sorted(presets.PRESETS))}")
+    height_mm, err = _coerce_float("height_mm", height_mm)
+    if err:
+        return err
     doc = DesignerDocument(
         tree=DesignerDocument.default().tree,
-        target=Target(preset, presets.PRESETS[preset], float(height_mm),
+        target=Target(preset, presets.PRESETS[preset], height_mm,
                       presets.DEFAULT_DPI, presets.DEFAULT_GUTTER_MM),
         constraints=Constraints(**presets.PRESET_CONSTRAINTS[preset]),
     )
-    Path(spec_path).write_text(doc.to_json())
+    err = _write_text(spec_path, doc.to_json())
+    if err:
+        return err
     return doc.to_spec_dict()
 
 
@@ -86,7 +120,7 @@ def _load_doc(spec_path: str):
         doc = DesignerDocument.from_spec_dict(raw)
     except MissingDesignerData as e:
         return _error(f"missing designer sidecar: {e}")
-    except (SpecError, Exception) as e:  # tree.from_dict raises bare ValueError etc.
+    except Exception as e:  # tree.from_dict raises bare ValueError etc.
         return _error(f"cannot parse spec: {e}")
     return raw, doc
 
@@ -103,7 +137,9 @@ def _write_back(spec_path: str, raw: dict, doc: DesignerDocument) -> dict:
     for key, value in raw.items():
         if key not in _KNOWN_TOP_LEVEL:
             out[key] = value
-    Path(spec_path).write_text(json.dumps(out, indent=2) + "\n")
+    err = _write_text(spec_path, json.dumps(out, indent=2) + "\n")
+    if err:
+        return err
     return {"panels": out["panels"]}
 
 
@@ -118,7 +154,7 @@ def _panel_op(spec_path: str, label: str, fn) -> dict:
         return _error(f"no panel labeled {label!r}; existing: {existing}")
     try:
         doc.tree = fn(doc.tree, pid)
-    except ValueError as e:
+    except (ValueError, KeyError) as e:
         return _error(str(e))
     return _write_back(spec_path, raw, doc)
 

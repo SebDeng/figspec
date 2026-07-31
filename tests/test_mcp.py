@@ -96,3 +96,47 @@ def test_build_server_smoke():
     from figspec.mcp_server import build_server
     server = build_server()
     assert server.name == "figspec"
+
+
+# --- adversarial: no exception may cross the tool boundary ---------------
+
+def test_write_spec_to_directory_path_errors(tmp_path):
+    valid = new_spec_impl(str(tmp_path / "seed.json"))
+    out = write_spec_impl(str(tmp_path), valid)  # tmp_path is a directory
+    assert "error" in out
+
+
+def test_new_spec_to_directory_path_errors(tmp_path):
+    out = new_spec_impl(str(tmp_path))  # tmp_path is a directory, not a file
+    assert "error" in out
+
+
+def test_new_spec_missing_parent_dir_errors(tmp_path):
+    out = new_spec_impl(str(tmp_path / "missing_parent" / "x.json"))
+    assert "error" in out
+
+
+def test_split_panel_readonly_file_errors(tmp_path):
+    p = tmp_path / "fig.figspec.json"
+    new_spec_impl(str(p))
+    p.chmod(0o444)
+    try:
+        out = split_panel_impl(str(p), "a", "right")
+        assert "error" in out
+    finally:
+        p.chmod(0o644)
+
+
+def test_lint_pdf_bad_width_mm(samples):
+    out = lint_pdf_impl(str(samples["bad"]), width_mm="not-a-number")
+    assert "error" in out and "width_mm" in out["error"]
+
+
+def test_lint_pdf_bad_min_font_pt(samples):
+    out = lint_pdf_impl(str(samples["bad"]), min_font_pt="oops")
+    assert "error" in out and "min_font_pt" in out["error"]
+
+
+def test_new_spec_bad_height_mm(tmp_path):
+    out = new_spec_impl(str(tmp_path / "x.json"), height_mm="x")
+    assert "error" in out and "height_mm" in out["error"]
