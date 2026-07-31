@@ -54,6 +54,7 @@ class MainWindow(QMainWindow):
 
         self.canvas.panel_action.connect(lambda a, pid: self.do_action(a, pid))
         self.canvas.ratios_committed.connect(self.apply_ratios)
+        self.canvas.asset_dropped.connect(self._on_asset_dropped)
         self.topbar.settings_changed.connect(self._on_settings_changed)
         self.topbar.save_requested.connect(self.save)
         self.topbar.copy_requested.connect(self.copy_json)
@@ -139,9 +140,24 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"{name}{dot} — FigSpec Designer")
 
     def refresh(self) -> None:
-        self.canvas.set_document(self.doc)
+        self.canvas.set_document(self.doc, base_dir=self._asset_base_dir())
         self.canvas.apply_selection(self.selected_panel_id)
         self._refresh_sidebar()
+
+    def _asset_base_dir(self) -> Path | None:
+        return self.current_path.parent if self.current_path else None
+
+    def _on_asset_dropped(self, panel_id: str, file_path: str) -> None:
+        from PySide6.QtGui import QImageReader
+        size = QImageReader(file_path).size()
+        if not size.isValid():
+            self.statusBar().showMessage("Cannot read image file", 3000)
+            return
+        try:
+            self._push_tree(ops.set_asset(self.doc.tree, panel_id, file_path,
+                                          (size.width(), size.height())))
+        except KeyError:
+            self.statusBar().showMessage("Panel no longer exists", 3000)
 
     def _refresh_sidebar(self) -> None:
         pid = self.selected_panel_id
@@ -409,7 +425,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("matplotlib snippet copied", 3000)
 
     def save_json(self, path) -> None:
-        Path(path).write_text(self.export_json_text())
+        Path(path).write_text(self.doc.to_json(base_dir=Path(path).parent))
 
     def open_json(self, path) -> str | None:
         """Returns an error message, or None on success."""

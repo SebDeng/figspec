@@ -37,6 +37,15 @@ QWidget#panelActions QToolButton:hover {{ background: {CANVAS}; color: {INK}; }}
 QLabel#aspectBadge {{ background: {AMBER_BG}; color: {AMBER_INK}; font-size: 10px;
     font-weight: 700; padding: 1px 6px; border-radius: 8px; }}
 
+QLabel#missingBadge {{
+    background: {AMBER_BG}; color: {AMBER_INK}; border-radius: 4px;
+    padding: 1px 6px; font-size: 10px;
+}}
+PanelWidget[assetMissing="true"] {{ border: 1px solid {AMBER_BG}; }}
+QLabel#panelLetter[onImage="true"] {{
+    background: rgba(255, 255, 255, 0.75); border-radius: 6px;
+}}
+
 QSplitter::handle {{ background: transparent; }}
 QSplitter::handle:hover, QSplitter::handle:pressed {{ background: {DIVIDER}; }}
 
