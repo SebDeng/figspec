@@ -120,9 +120,13 @@ class SpecimenStrip(QWidget):
         lay.setSpacing(8)
         lay.addWidget(self.btn_expand)
         lay.addWidget(self.area, stretch=1)
+        # Absorbs leftover width when the specimen area is collapsed --
+        # without it the layout inflates the zoom buttons to fill the row.
+        lay.addStretch(1)
         lay.addWidget(self.badge)
         for b in (self.btn_fit, self.btn_actual, self.btn_zoom_out,
                   self.btn_zoom_in):
+            b.setMaximumWidth(44)
             lay.addWidget(b)
         self._expanded = False
         self.set_expanded(False)

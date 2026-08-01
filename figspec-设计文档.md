@@ -56,7 +56,7 @@ MatPlotAgent（代码 LLM + 多模态 LLM 作图 agent，带视觉反馈迭代�
 
 ### 2.5 实现现状（2026-07-30）
 
-Linter 已作为 `figspec` 包 + `figspec lint` CLI 发布（有效字号/线宽/DPI 校验、pikepdf 自研解释器、Form XObject 递归）；Designer 已作为 PySide6 macOS 应用发布（分割树画布、期刊预设与每预设约束、figspec.json 导出/往返、签名分发管线）；期刊预设数值经四社官方一手来源核验（见 `docs/journal-figure-specs.md`）。2026-07-31 起 Designer 增内容替身（五 archetype 排版预演，约束派生取值）、实寸模式（fit/1:1/手动缩放 + 屏幕校准）、磅尺样张条、手作图缩放真相（源 DPI 声明、名义↔有效换算、作图卡片）与 PDF 资产拖入即预报（lint 解释器 × 虚拟缩放，`figspec.scaling`/`figspec.standins` 供 MCP 复用），见 `docs/superpowers/specs/2026-07-31-standin-truescale-design.md`；另增 Illustrator 拼版底板与单 panel 画板导出（物理尺寸精确、OCG 分层、资产 1:1 预置的 PDF，`figspec.board`，见 `docs/superpowers/specs/2026-07-31-illustrator-board-design.md`）。本文档后续章节的 server/渲染部分为待建内容。
+Linter 已作为 `figspec` 包 + `figspec lint` CLI 发布（有效字号/线宽/DPI 校验、pikepdf 自研解释器、Form XObject 递归）；Designer 已作为 PySide6 macOS 应用发布（分割树画布、期刊预设与每预设约束、figspec.json 导出/往返、签名分发管线）；期刊预设数值经四社官方一手来源核验（见 `docs/journal-figure-specs.md`）。2026-07-31 起 Designer 增内容替身（五 archetype 排版预演，约束派生取值）、实寸模式（fit/1:1/手动缩放 + 屏幕校准）、磅尺样张条、手作图缩放真相（源 DPI 声明、名义↔有效换算、作图卡片）与 PDF 资产拖入即预报（lint 解释器 × 虚拟缩放，`figspec.scaling`/`figspec.standins` 供 MCP 复用），见 `docs/superpowers/specs/2026-07-31-standin-truescale-design.md`；另增 Illustrator 拼版底板与单 panel 画板导出（物理尺寸精确、OCG 分层、资产 1:1 预置的 PDF，`figspec.board`，见 `docs/superpowers/specs/2026-07-31-illustrator-board-design.md`）；交互层随后按"切格子/看真相/交出去"三动词收敛（Hand Off 面板、三件事顶栏、真相行侧栏、折叠状态条，见 `docs/superpowers/specs/2026-07-31-ui-slim-design.md`）。本文档后续章节的 server/渲染部分为待建内容。
 
 ## 3. 产品定位与设计原则
 
