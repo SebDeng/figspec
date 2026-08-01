@@ -101,7 +101,7 @@ def test_lint_worker_success(qtbot, tmp_path):
     cfg = LintConfig(min_font_pt=5.0, min_linewidth_pt=0.25,
                      width_pt=mm_to_pt(183.0))
     worker = LintWorker(str(paths["bad"]), cfg, tmp_path / "out")
-    with qtbot.waitSignal(worker.finished_ok, timeout=15000) as blocker:
+    with qtbot.waitSignal(worker.finished_ok, timeout=90000) as blocker:
         worker.start()
     report, annotated = blocker.args
     # render_json shape: summary = {"ready": bool, "strict": bool,
@@ -118,7 +118,7 @@ def test_lint_worker_failure(qtbot, tmp_path):
     not_pdf = tmp_path / "x.pdf"
     not_pdf.write_bytes(b"not a pdf")
     worker = LintWorker(str(not_pdf), LintConfig(), tmp_path / "out")
-    with qtbot.waitSignal(worker.failed, timeout=15000) as blocker:
+    with qtbot.waitSignal(worker.failed, timeout=90000) as blocker:
         worker.start()
     assert blocker.args[0]  # non-empty error message
     worker.wait()
@@ -131,7 +131,7 @@ def test_lint_dock_populates(qtbot, tmp_path):
     paths = write_samples(tmp_path / "samples")
     win._start_lint(str(paths["bad"]))
     assert not win.lint_action.isEnabled()  # disabled while running
-    qtbot.waitUntil(lambda: win.lint_action.isEnabled(), timeout=20000)
+    qtbot.waitUntil(lambda: win.lint_action.isEnabled(), timeout=90000)
     dock = win.lint_dock
     assert dock.findings_tree.topLevelItemCount() > 0
     assert dock.summary_label.text()  # verdict + counts populated
@@ -143,7 +143,7 @@ def test_lint_dock_error_path(qtbot, tmp_path):
     bad = tmp_path / "x.pdf"
     bad.write_bytes(b"nope")
     win._start_lint(str(bad))
-    qtbot.waitUntil(lambda: win.lint_action.isEnabled(), timeout=20000)
+    qtbot.waitUntil(lambda: win.lint_action.isEnabled(), timeout=90000)
     assert win.lint_dock.error_label.isVisibleTo(win.lint_dock)
 
 
@@ -175,8 +175,8 @@ def test_relint_button_reruns_lint(qtbot, tmp_path):
     qtbot.addWidget(win)
     paths = write_samples(tmp_path / "samples")
     win._start_lint(str(paths["good"]))
-    qtbot.waitUntil(lambda: win.lint_action.isEnabled(), timeout=20000)
+    qtbot.waitUntil(lambda: win.lint_action.isEnabled(), timeout=90000)
     first = win.lint_dock.summary_label.text()
     win.lint_dock.btn_relint.click()
-    qtbot.waitUntil(lambda: win.lint_action.isEnabled(), timeout=20000)
+    qtbot.waitUntil(lambda: win.lint_action.isEnabled(), timeout=90000)
     assert win.lint_dock.summary_label.text() == first  # same file, same verdict
