@@ -41,10 +41,19 @@ def test_topbar_signals(qtbot):
     qtbot.addWidget(tb)
     got = []
     tb.settings_changed.connect(lambda: got.append("settings"))
-    tb.save_requested.connect(lambda: got.append("save"))
+    tb.handoff_requested.connect(lambda: got.append("handoff"))
     tb.height_spin.setValue(120.0)
-    tb.btn_save.click()
-    assert "settings" in got and "save" in got
+    tb.btn_handoff.click()
+    assert "settings" in got and "handoff" in got
+
+
+def test_topbar_chip_reflects_document_values(qtbot):
+    tb = TopBar()
+    qtbot.addWidget(tb)
+    assert "600 dpi" in tb.btn_document.text()
+    assert "5–7 pt" in tb.btn_document.text()
+    tb.min_font_spin.setValue(6.0)
+    assert "6–7 pt" in tb.btn_document.text()
 
 
 # ---- F1: Sidebar.flush_pending -------------------------------------------

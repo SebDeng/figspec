@@ -1,24 +1,27 @@
-"""Page settings + export actions."""
+"""Slim top bar: Preset + W×H + a Document chip + one primary action.
+
+The five set-once controls (DPI, gutter, and the three constraint fields)
+keep their widget objects — and therefore the values()/set_values()
+contract and every test that drives them programmatically — but live in a
+popover behind the settings chip. Visible chrome drops from eleven
+controls and three buttons to four controls and one button.
+"""
 from __future__ import annotations
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QHBoxLayout, QLabel,
-                               QPushButton, QSpinBox, QWidget)
+from PySide6.QtCore import QPoint, Qt, Signal
+from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QGridLayout,
+                               QHBoxLayout, QLabel, QPushButton, QSpinBox,
+                               QWidget)
 from figspec_designer import presets
 
 
 class TopBar(QWidget):
     settings_changed = Signal()
-    save_requested = Signal()
-    copy_requested = Signal()
-    open_requested = Signal()
+    handoff_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.setObjectName("topbar")
         self.setAttribute(Qt.WA_StyledBackground, True)
-        lay = QHBoxLayout(self)
-        lay.setContentsMargins(16, 8, 16, 8)
-        lay.setSpacing(8)
 
         self.preset_combo = QComboBox()
         self.preset_combo.addItems(list(presets.PRESETS) + ["custom"])
@@ -51,35 +54,43 @@ class TopBar(QWidget):
         self.min_lw_spin.setRange(0.05, 10.0)
         self.min_lw_spin.setSingleStep(0.05)
         self.min_lw_spin.setSuffix(" pt")
-        self.btn_open = QPushButton("Open…")
-        self.btn_save = QPushButton("Save JSON…")
-        self.btn_copy = QPushButton("Copy JSON")
-        self.btn_copy.setObjectName("primary")
 
-        # Preset and geometry
-        for label, w in [("Preset", self.preset_combo), ("Width", self.width_spin),
-                         ("Height", self.height_spin)]:
-            lay.addWidget(QLabel(label))
-            lay.addWidget(w)
+        # Document popover: set-once values, out of the permanent chrome.
+        self.btn_document = QPushButton()
+        self.btn_document.setObjectName("docChip")
+        self.btn_document.setCursor(Qt.PointingHandCursor)
+        self._popover = QWidget(self, Qt.Popup)
+        self._popover.setObjectName("docPopover")
+        self._popover.setAttribute(Qt.WA_StyledBackground, True)
+        grid = QGridLayout(self._popover)
+        grid.setContentsMargins(14, 12, 14, 12)
+        grid.setSpacing(8)
+        for row, (text, widget) in enumerate([
+                ("Resolution", self.dpi_spin), ("Gutter", self.gutter_spin),
+                ("Min font", self.min_font_spin),
+                ("Max font", self.max_font_spin),
+                ("Min line", self.min_lw_spin)]):
+            grid.addWidget(QLabel(text), row, 0)
+            grid.addWidget(widget, row, 1)
 
-        # DPI and gutter
+        self.btn_handoff = QPushButton("Hand Off…")
+        self.btn_handoff.setObjectName("primary")
+
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(16, 8, 16, 8)
+        lay.setSpacing(8)
+        preset_lbl = QLabel("Preset")
+        lay.addWidget(preset_lbl)
+        lay.addWidget(self.preset_combo)
         lay.addSpacing(8)
-        for label, w in [("DPI", self.dpi_spin), ("Gutter", self.gutter_spin)]:
-            lay.addWidget(QLabel(label))
-            lay.addWidget(w)
-
-        # Constraints
+        lay.addWidget(self.width_spin)
+        times = QLabel("×")
+        lay.addWidget(times)
+        lay.addWidget(self.height_spin)
         lay.addSpacing(8)
-        for label, w in [("Min font", self.min_font_spin),
-                         ("Max font", self.max_font_spin),
-                         ("Min line", self.min_lw_spin)]:
-            lay.addWidget(QLabel(label))
-            lay.addWidget(w)
-
-        # Buttons
+        lay.addWidget(self.btn_document)
         lay.addStretch(1)
-        for b in (self.btn_open, self.btn_save, self.btn_copy):
-            lay.addWidget(b)
+        lay.addWidget(self.btn_handoff)
 
         _nd_constraints = presets.PRESET_CONSTRAINTS["nature_double"]
         self.set_values("nature_double", presets.PRESETS["nature_double"],
@@ -94,9 +105,21 @@ class TopBar(QWidget):
                     self.min_font_spin, self.max_font_spin, self.min_lw_spin):
             spin.valueChanged.connect(lambda _=None: self.settings_changed.emit())
         self.dpi_spin.valueChanged.connect(lambda _=None: self.settings_changed.emit())
-        self.btn_save.clicked.connect(self.save_requested.emit)
-        self.btn_copy.clicked.connect(self.copy_requested.emit)
-        self.btn_open.clicked.connect(self.open_requested.emit)
+        self.settings_changed.connect(self._refresh_chip)
+        self.btn_document.clicked.connect(self._show_popover)
+        self.btn_handoff.clicked.connect(self.handoff_requested.emit)
+
+    def _refresh_chip(self) -> None:
+        self.btn_document.setText(
+            f"{self.dpi_spin.value()} dpi · {self.gutter_spin.value():g} mm · "
+            f"{self.min_font_spin.value():g}–{self.max_font_spin.value():g} pt"
+            f" · ≥{self.min_lw_spin.value():g} pt")
+
+    def _show_popover(self) -> None:
+        self._popover.adjustSize()
+        self._popover.move(self.btn_document.mapToGlobal(
+            QPoint(0, self.btn_document.height() + 4)))
+        self._popover.show()
 
     def _on_preset(self, key: str) -> None:
         if key in presets.PRESETS:
@@ -141,6 +164,7 @@ class TopBar(QWidget):
         self.min_lw_spin.setValue(min_lw)
         for w in widgets:
             w.blockSignals(False)
+        self._refresh_chip()
 
     def set_height_over_limit(self, over: bool, tooltip: str = "") -> None:
         """Advisory amber styling on the height spinbox -- never blocks input."""

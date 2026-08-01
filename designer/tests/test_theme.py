@@ -70,7 +70,8 @@ def test_topbar_theme_hooks(qtbot):
     tb = TopBar()
     qtbot.addWidget(tb)
     assert tb.objectName() == "topbar"
-    assert tb.btn_copy.objectName() == "primary"
+    assert tb.btn_handoff.objectName() == "primary"
+    assert tb.btn_document.objectName() == "docChip"
 
 
 def test_asset_missing_border_yields_to_selection():

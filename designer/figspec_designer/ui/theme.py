@@ -57,6 +57,13 @@ QLabel#dragFeedback {{ background: {INK}; color: {CHROME}; padding: 3px 8px;
 
 QWidget#topbar {{ background: {CHROME}; border-bottom: 1px solid {HAIRLINE}; }}
 QWidget#topbar QLabel {{ color: {INK_SECONDARY}; font-size: 12px; }}
+QPushButton#docChip {{ background: {CANVAS}; border: 1px solid {HAIRLINE};
+    border-radius: 12px; padding: 4px 12px; color: {INK_SECONDARY};
+    font-size: 12px; }}
+QPushButton#docChip:hover {{ border-color: {DIVIDER}; color: {INK}; }}
+QWidget#docPopover {{ background: {PANEL_BG}; border: 1px solid {DIVIDER};
+    border-radius: 8px; }}
+QWidget#docPopover QLabel {{ color: {INK_MUTED}; font-size: 12px; }}
 QComboBox, QDoubleSpinBox, QSpinBox {{ background: {PANEL_BG}; border: 1px solid {HAIRLINE};
     border-radius: 6px; padding: 3px 8px; color: {INK}; }}
 QComboBox:hover, QDoubleSpinBox:hover, QSpinBox:hover {{ border-color: {DIVIDER}; }}
