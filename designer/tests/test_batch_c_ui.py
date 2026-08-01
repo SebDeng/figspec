@@ -74,7 +74,10 @@ def test_drag_enter_accepts_image_urls(qtbot, tmp_path):
     assert widget._accepts_mime(mime)  # case-insensitive ext
     mime2 = QMimeData()
     mime2.setUrls([QUrl.fromLocalFile(str(tmp_path / "x.pdf"))])
-    assert not widget._accepts_mime(mime2)
+    assert widget._accepts_mime(mime2)  # vector assets accepted since batch G
+    mime3 = QMimeData()
+    mime3.setUrls([QUrl.fromLocalFile(str(tmp_path / "x.svg"))])
+    assert not widget._accepts_mime(mime3)
 
 
 def test_open_json_resolves_relative_assets_before_render(qtbot, tmp_path):

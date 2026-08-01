@@ -5,9 +5,9 @@ import json
 from pathlib import Path
 from PySide6.QtCore import Qt, QSettings
 from PySide6.QtGui import QAction, QKeySequence
-from PySide6.QtWidgets import (QDialog, QFileDialog, QHBoxLayout, QInputDialog,
-                               QMainWindow, QMessageBox, QApplication,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QDialog, QFileDialog, QFrame, QHBoxLayout,
+                               QInputDialog, QMainWindow, QMessageBox,
+                               QApplication, QScrollArea, QVBoxLayout, QWidget)
 from figspec.document import absolutize_assets
 from figspec.snippet import generate_snippet
 from figspec.spec import Target
@@ -45,6 +45,17 @@ class MainWindow(QMainWindow):
         self.canvas = Canvas()
         self.sidebar = Sidebar()
         self.sidebar.setFixedWidth(260)
+        from figspec_designer.ui.specimen_strip import SpecimenStrip
+        self.specimen_strip = SpecimenStrip()
+
+        # Scroll container: inert at fit zoom (canvas min size 0), grows
+        # scrollbars when actual/manual zoom pins the page larger than the
+        # viewport (canvas publishes its extent via setMinimumSize).
+        self.canvas_scroll = QScrollArea()
+        self.canvas_scroll.setObjectName("canvasScroll")
+        self.canvas_scroll.setWidgetResizable(True)
+        self.canvas_scroll.setFrameShape(QFrame.NoFrame)
+        self.canvas_scroll.setWidget(self.canvas)
 
         central = QWidget()
         central.setObjectName("chrome")
@@ -53,14 +64,17 @@ class MainWindow(QMainWindow):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(self.topbar)
         row = QHBoxLayout()
-        row.addWidget(self.canvas, stretch=1)
+        row.addWidget(self.canvas_scroll, stretch=1)
         row.addWidget(self.sidebar)
         outer.addLayout(row, stretch=1)
+        outer.addWidget(self.specimen_strip)
         self.setCentralWidget(central)
 
         self.canvas.panel_action.connect(lambda a, pid: self.do_action(a, pid))
         self.canvas.ratios_committed.connect(self.apply_ratios)
         self.canvas.asset_dropped.connect(self._on_asset_dropped)
+        self.canvas.scale_changed.connect(self._on_canvas_scale)
+        self.specimen_strip.actual_size_requested.connect(self.zoom_actual)
         self.topbar.settings_changed.connect(self._on_settings_changed)
         self.topbar.save_requested.connect(self.save)
         self.topbar.copy_requested.connect(self.copy_json)
@@ -71,7 +85,10 @@ class MainWindow(QMainWindow):
         self.sidebar.aspect_lock_toggled.connect(self._on_aspect_lock)
         self.sidebar.placement_copy_requested.connect(self.copy_placement_table)
         self.sidebar.snippet_copy_requested.connect(self.copy_snippet)
+        self.sidebar.card_copy_requested.connect(self.copy_authoring_card)
         self.sidebar.asset_remove_requested.connect(self._on_asset_removed)
+        self.sidebar.asset_dpi_edited.connect(self._on_asset_dpi_edited)
+        self.sidebar.standin_changed.connect(self._on_standin_changed)
 
         self.lint_dock = LintDock(self)
         self.addDockWidget(Qt.RightDockWidgetArea, self.lint_dock)
@@ -79,6 +96,8 @@ class MainWindow(QMainWindow):
         self.lint_dock.relint_requested.connect(self._relint)
         self._lint_worker = None
         self._last_lint_path: str | None = None
+        # predict_pdf results keyed on (path, mtime, panel size, thresholds)
+        self._predict_cache: dict[tuple, list[str]] = {}
 
         self._make_menus()
         # Init-time doc/topbar sync only -- NOT _on_settings_changed(),
@@ -108,11 +127,20 @@ class MainWindow(QMainWindow):
         act(file_menu, "Copy JSON", "Ctrl+Shift+C", self.copy_json)
         act(file_menu, "Copy Placement Table", None, self.copy_placement_table)
         act(file_menu, "Copy matplotlib Snippet", None, self.copy_snippet)
+        act(file_menu, "Copy Authoring Card", None, self.copy_authoring_card)
         act(file_menu, "Export Layout Preview…", None, self.export_layout_preview)
+        act(file_menu, "Export Illustrator Board…", None, self.export_ai_board)
         self.lint_action = act(file_menu, "Lint PDF…", "Ctrl+L", self.lint_pdf)
         edit_menu = self.menuBar().addMenu("Edit")
         act(edit_menu, "Undo", "Ctrl+Z", self.undo)
         act(edit_menu, "Redo", "Ctrl+Shift+Z", self.redo)
+        view_menu = self.menuBar().addMenu("View")
+        act(view_menu, "Zoom to Fit", "Ctrl+0", self.zoom_fit)
+        act(view_menu, "Actual Size", "Ctrl+1", self.zoom_actual)
+        act(view_menu, "Zoom In", "Ctrl+=", lambda: self.zoom_step(1.25))
+        act(view_menu, "Zoom Out", "Ctrl+-", lambda: self.zoom_step(0.8))
+        view_menu.addSeparator()
+        act(view_menu, "Calibrate Display…", None, self.calibrate_display)
         panel_menu = self.menuBar().addMenu("Panel")
         act(panel_menu, "Split Right", "Ctrl+D",
             lambda: self.do_action("split_right", self.selected_panel_id))
@@ -173,7 +201,74 @@ class MainWindow(QMainWindow):
     def _asset_base_dir(self) -> Path | None:
         return self.current_path.parent if self.current_path else None
 
+    # ---- zoom -------------------------------------------------------
+    def _actual_ppm(self) -> float:
+        """Logical px per mm for TRUE physical size on the current screen,
+        including any stored calibration correction."""
+        from figspec_designer.ui import truescale
+        screen = self.screen() or QApplication.primaryScreen()
+        return truescale.screen_px_per_mm(
+            screen, truescale.load_correction(screen, self._settings()))
+
+    def _on_canvas_scale(self, ppm: float) -> None:
+        self.specimen_strip.set_context(ppm, self._actual_ppm(),
+                                        self.doc.constraints)
+
+    def zoom_fit(self) -> None:
+        self.canvas.set_zoom("fit")
+
+    def zoom_actual(self) -> None:
+        self.canvas.set_zoom("actual", self._actual_ppm())
+
+    def zoom_step(self, factor: float) -> None:
+        actual = self._actual_ppm()
+        ppm = min(max(self.canvas.px_per_mm * factor, 0.25 * actual),
+                  4.0 * actual)
+        self.canvas.set_zoom("manual", ppm)
+
+    def calibrate_display(self) -> None:
+        from figspec_designer.ui import truescale
+        from figspec_designer.ui.calibrate_dialog import CalibrateDialog
+        screen = self.screen() or QApplication.primaryScreen()
+        dlg = CalibrateDialog(truescale.screen_px_per_mm(screen),
+                              truescale.load_correction(screen,
+                                                        self._settings()),
+                              self)
+        if dlg.exec() == QDialog.Accepted:
+            truescale.save_correction(screen, dlg.correction(),
+                                      self._settings())
+            if self.canvas.zoom_mode == "actual":
+                self.zoom_actual()  # re-derive with the new correction
+
+    # Qt substitutes ~3780 dots/meter (96.01 dpi) when a file carries no
+    # resolution metadata -- a real 96 dpi pHYs is indistinguishable from
+    # that fallback, so both are treated as "assumed", never "declared".
+    _QT_DEFAULT_DPM = 3780
+
+    def _read_asset_dpi(self, file_path: str) -> float | None:
+        from PySide6.QtGui import QImage
+        dpm = QImage(file_path).dotsPerMeterX()
+        if dpm <= 0 or abs(dpm - self._QT_DEFAULT_DPM) <= 2:
+            return None
+        return dpm * 0.0254
+
     def _on_asset_dropped(self, panel_id: str, file_path: str) -> None:
+        if file_path.lower().endswith(".pdf"):
+            # Vector asset: store the page size in pt as "pixels" with a
+            # declared 72 dpi -- 1 pt = 1/72 in, so the ordinary raster
+            # math yields the exact intrinsic physical size and scale.
+            try:
+                w_pt, h_pt = self._pdf_page_size(file_path)
+            except Exception:
+                self.statusBar().showMessage("Cannot read PDF file", 3000)
+                return
+            try:
+                self._push_tree(ops.set_asset(
+                    self.doc.tree, panel_id, file_path,
+                    (round(w_pt), round(h_pt)), asset_dpi=72.0))
+            except KeyError:
+                self.statusBar().showMessage("Panel no longer exists", 3000)
+            return
         from PySide6.QtGui import QImageReader
         size = QImageReader(file_path).size()
         if not size.isValid():
@@ -181,13 +276,35 @@ class MainWindow(QMainWindow):
             return
         try:
             self._push_tree(ops.set_asset(self.doc.tree, panel_id, file_path,
-                                          (size.width(), size.height())))
+                                          (size.width(), size.height()),
+                                          asset_dpi=self._read_asset_dpi(file_path)))
         except KeyError:
             self.statusBar().showMessage("Panel no longer exists", 3000)
+
+    @staticmethod
+    def _pdf_page_size(file_path: str) -> tuple[float, float]:
+        import pypdfium2 as pdfium
+        doc = pdfium.PdfDocument(file_path)
+        try:
+            return doc[0].get_size()
+        finally:
+            doc.close()
 
     def _on_asset_removed(self, panel_id: str) -> None:
         try:
             self._push_tree(ops.set_asset(self.doc.tree, panel_id, None, None))
+        except KeyError:
+            pass
+
+    def _on_asset_dpi_edited(self, panel_id: str, dpi: float | None) -> None:
+        try:
+            self._push_tree(ops.set_asset_dpi(self.doc.tree, panel_id, dpi))
+        except (ValueError, KeyError):
+            self._refresh_sidebar()  # snap the field back to the tree's value
+
+    def _on_standin_changed(self, panel_id: str, value: str | None) -> None:
+        try:
+            self._push_tree(ops.set_stand_in(self.doc.tree, panel_id, value))
         except KeyError:
             pass
 
@@ -197,22 +314,32 @@ class MainWindow(QMainWindow):
         if pid is None or pid not in panels:
             self.selected_panel_id = None
             self.sidebar.clear()
+            self.specimen_strip.set_panel_scale(None)
             return
         rect = next(r for r in self.doc.panel_rects() if r.panel_id == pid)
         panel = panels[pid]
         from pathlib import Path as _P
         from figspec_designer.model.flatten import effective_dpi, format_label
         from figspec.document import resolve_asset
-        asset_name = asset_px = eff = None
-        dpi_level, missing = "ok", False
+        asset_name = asset_px = eff = scale_k = prediction = None
+        dpi_level, missing, is_vector = "ok", False, False
         if panel.asset is not None:
+            from figspec import scaling
             asset_name = _P(panel.asset).name
             asset_px = panel.asset_px
-            eff = effective_dpi(panel.asset_px, rect.w_mm, rect.h_mm)
-            floor = self.doc.constraints.min_effective_dpi
-            dpi_level = ("ok" if eff >= floor
-                         else "warn" if eff >= 0.67 * floor else "bad")
             missing = resolve_asset(panel.asset, self._asset_base_dir()) is None
+            is_vector = panel.asset.lower().endswith(".pdf")
+            if is_vector:
+                if not missing:
+                    prediction = self._pdf_prediction_rows(panel, rect)
+            else:
+                eff = effective_dpi(panel.asset_px, rect.w_mm, rect.h_mm)
+                floor = self.doc.constraints.min_effective_dpi
+                dpi_level = ("ok" if eff >= floor
+                             else "warn" if eff >= 0.67 * floor else "bad")
+            src_mm = scaling.asset_size_mm(panel.asset_px,
+                                           panel.asset_dpi or 96.0)
+            scale_k = scaling.placement_scale((rect.w_mm, rect.h_mm), src_mm)
         label_text = format_label(self.doc.labels()[pid],
                                   self.doc.constraints.panel_label_style)
         self.sidebar.show_panel(pid, label_text, rect,
@@ -222,7 +349,50 @@ class MainWindow(QMainWindow):
                                 h_adjustable=self._axis_adjustable(pid, "h"),
                                 asset_name=asset_name, asset_px=asset_px,
                                 eff_dpi=eff, dpi_level=dpi_level,
-                                asset_missing=missing)
+                                asset_missing=missing,
+                                asset_dpi=panel.asset_dpi, scale_k=scale_k,
+                                stand_in=panel.stand_in,
+                                asset_vector=is_vector, prediction=prediction)
+        self.specimen_strip.set_panel_scale(scale_k)
+
+    def _pdf_prediction_rows(self, panel, rect) -> list[str]:
+        """predict_pdf → display rows, cached on (file, mtime, panel size,
+        thresholds) so tree refreshes don't re-parse the PDF."""
+        from figspec import scaling
+        from figspec.document import resolve_asset
+        path = resolve_asset(panel.asset, self._asset_base_dir())
+        if path is None:
+            return []
+        try:
+            mtime = Path(path).stat().st_mtime_ns
+        except OSError:
+            return []
+        c = self.doc.constraints
+        key = (str(path), mtime, round(rect.w_mm, 1), round(rect.h_mm, 1),
+               c.min_font_pt, c.max_font_pt, c.min_linewidth_pt)
+        cached = self._predict_cache.get(key)
+        if cached is not None:
+            return cached
+        try:
+            pred = scaling.predict_pdf(str(path), (rect.w_mm, rect.h_mm), c)
+        except Exception as e:
+            rows = [f"prediction failed: {e}"]
+        else:
+            glyph = {"ok": "✓", "warn": "△", "fail": "✗"}
+            rows = []
+            if pred["text_absent"]:
+                rows.append("text outlined — cannot predict font sizes")
+            entries = ([("", e) for e in pred["text"]]
+                       + [("line ", e) for e in pred["strokes"]])
+            for prefix, e in entries[:8]:
+                rows.append(f"{prefix}{e['source_pt']:g} pt → "
+                            f"{e['placed_pt']:.2f} pt {glyph[e['verdict']]}")
+            if len(entries) > 8:
+                rows.append(f"+{len(entries) - 8} more")
+        if len(self._predict_cache) > 64:
+            self._predict_cache.clear()
+        self._predict_cache[key] = rows
+        return rows
 
     def _axis_adjustable(self, panel_id: str, axis: str) -> bool:
         """Probe whether axis can be resized on the CURRENT tree, without
@@ -285,6 +455,8 @@ class MainWindow(QMainWindow):
                 self.canvas.apply_swap_armed(panel_id)
                 self.statusBar().showMessage(
                     "Swap: select another panel to exchange with (Esc to cancel)")
+            elif action == "export_artboard":
+                self.export_panel_artboard(panel_id)
             elif action == "close":
                 self._push_tree(ops.close_panel(self.doc.tree, panel_id))
         except ValueError as e:
@@ -481,6 +653,24 @@ class MainWindow(QMainWindow):
             generate_snippet(self.doc.to_spec_dict(), name))
         self.statusBar().showMessage("matplotlib snippet copied", 3000)
 
+    def copy_authoring_card(self) -> None:
+        from figspec import scaling
+        pid = self.selected_panel_id
+        rect = next((r for r in self.doc.panel_rects() if r.panel_id == pid),
+                    None)
+        if rect is None:
+            self.statusBar().showMessage("Select a panel first", 3000)
+            return
+        panel = next(p for p in iter_panels(self.doc.tree) if p.id == pid)
+        # Undeclared raster sources fall back to the same 96 dpi assumption
+        # the sidebar displays -- the card must agree with the ×k on screen.
+        dpi = panel.asset_dpi if panel.asset_dpi else (
+            96.0 if panel.asset_px else None)
+        QApplication.clipboard().setText(scaling.authoring_card(
+            (rect.w_mm, rect.h_mm), self.doc.constraints,
+            asset_px=panel.asset_px, asset_dpi=dpi))
+        self.statusBar().showMessage("Authoring card copied", 3000)
+
     def export_layout_preview(self) -> None:
         from figspec_designer.ui.preview_export import render_layout_png
         path, _ = QFileDialog.getSaveFileName(self, "Export layout preview",
@@ -493,6 +683,75 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"Layout preview exported to {path}", 3000)
         else:
             self.statusBar().showMessage(f"Could not write {path}", 3000)
+
+    def _board_panels(self) -> list:
+        """Doc → BoardPanel list; asset paths resolved so the board embeds
+        exactly what the canvas shows (missing files stay None → frame only)."""
+        from figspec.board import BoardPanel
+        from figspec.document import resolve_asset
+        nodes = {p.id: p for p in iter_panels(self.doc.tree)}
+        labels = self.doc.labels()
+        out = []
+        for r in self.doc.panel_rects():
+            node = nodes[r.panel_id]
+            path = None
+            if node.asset is not None:
+                resolved = resolve_asset(node.asset, self._asset_base_dir())
+                path = str(resolved) if resolved is not None else None
+            out.append(BoardPanel(labels[r.panel_id], r.x_mm, r.y_mm,
+                                  r.w_mm, r.h_mm, asset_path=path,
+                                  asset_px=node.asset_px,
+                                  asset_dpi=node.asset_dpi))
+        return out
+
+    def export_ai_board(self) -> None:
+        from figspec.board import build_board
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export Illustrator board", "figure-board.pdf",
+            "PDF for Illustrator (*.pdf)")
+        if not path:
+            return
+        if not Path(path).suffix:
+            path += ".pdf"
+        try:
+            build_board(self.doc.target.figure_width_mm,
+                        self.doc.target.figure_height_mm,
+                        self._board_panels(), path,
+                        constraints=self.doc.constraints,
+                        label_style=self.doc.constraints.panel_label_style)
+        except OSError as e:
+            self.statusBar().showMessage(f"Could not write board: {e}", 5000)
+            return
+        self.statusBar().showMessage(
+            "Illustrator board exported — opens at exact size", 4000)
+
+    def export_panel_artboard(self, panel_id: str) -> None:
+        from figspec.board import panel_artboard
+        board = next((p for p in self._board_panels()
+                      if p.label == self.doc.labels().get(panel_id)), None)
+        if board is None:
+            self.statusBar().showMessage("Panel no longer exists", 3000)
+            return
+        from figspec.layout.flatten import format_label
+        letter = format_label(board.label,
+                              self.doc.constraints.panel_label_style)
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export panel artboard", f"panel-{letter}-artboard.pdf",
+            "PDF for Illustrator (*.pdf)")
+        if not path:
+            return
+        if not Path(path).suffix:
+            path += ".pdf"
+        try:
+            panel_artboard(board, path, constraints=self.doc.constraints,
+                           label_style=self.doc.constraints.panel_label_style)
+        except OSError as e:
+            self.statusBar().showMessage(f"Could not write artboard: {e}",
+                                         5000)
+            return
+        self.statusBar().showMessage(
+            "Panel artboard exported — draw on it in Illustrator at 1:1",
+            4000)
 
     def lint_pdf(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Lint a finished PDF", "",

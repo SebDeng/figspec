@@ -22,6 +22,7 @@ class Canvas(QWidget):
     panel_action = Signal(str, object)      # (action, panel_id | None)
     ratios_committed = Signal(tuple, tuple)  # (path, ratios)
     asset_dropped = Signal(str, str)         # (panel_id, absolute file path)
+    scale_changed = Signal(float)            # px_per_mm after every rebuild
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -34,6 +35,8 @@ class Canvas(QWidget):
         self._swap_armed_id: str | None = None
         self._asset_base = None
         self.px_per_mm = 1.0
+        self._zoom_mode = "fit"
+        self._zoom_ppm: float | None = None
         self._feedback = QLabel(self)
         self._feedback.setObjectName("dragFeedback")
         self._feedback.hide()
@@ -63,12 +66,35 @@ class Canvas(QWidget):
         for pid, w in self._panels.items():
             w.set_swap_armed(pid == panel_id)
 
+    # ---- zoom -------------------------------------------------------
+    @property
+    def zoom_mode(self) -> str:
+        return self._zoom_mode
+
+    def set_zoom(self, mode: str, ppm: float | None = None) -> None:
+        """"fit" tracks the window (ppm ignored); "actual"/"manual" pin
+        px_per_mm to the given value — the caller supplies it (MainWindow
+        derives "actual" from the screen via truescale)."""
+        if mode not in ("fit", "actual", "manual"):
+            raise ValueError(f"unknown zoom mode {mode!r}")
+        if mode != "fit" and (ppm is None or ppm <= 0):
+            raise ValueError("actual/manual zoom needs a positive ppm")
+        self._zoom_mode = mode
+        self._zoom_ppm = None if mode == "fit" else float(ppm)
+        if self._doc is not None:
+            self._rebuild()
+
     # ---- geometry ---------------------------------------------------
     def _fit_scale(self) -> float:
         t = self._doc.target
         avail_w = max(self.width() - 2 * _MARGIN_PX, 50)
         avail_h = max(self.height() - 2 * _MARGIN_PX, 50)
         return max(min(avail_w / t.figure_width_mm, avail_h / t.figure_height_mm), 0.1)
+
+    def _resolve_scale(self) -> float:
+        if self._zoom_mode == "fit" or self._zoom_ppm is None:
+            return self._fit_scale()
+        return self._zoom_ppm
 
     def mm_sizes(self, splitter: GutterSplitter) -> list[float]:
         return [s / self.px_per_mm for s in splitter.sizes()]
@@ -82,15 +108,25 @@ class Canvas(QWidget):
         if self._doc is None:
             return
         t = self._doc.target
-        self.px_per_mm = self._fit_scale()
+        self.px_per_mm = self._resolve_scale()
         labels = self._doc.labels()
         self._page = QWidget(self)
         self._page.setObjectName("page")
         self._page.setAttribute(Qt.WA_StyledBackground, True)
         page_w = round(t.figure_width_mm * self.px_per_mm)
         page_h = round(t.figure_height_mm * self.px_per_mm)
-        self._page.setGeometry((self.width() - page_w) // 2,
-                               (self.height() - page_h) // 2, page_w, page_h)
+        # Pinned zooms (actual/manual) can outgrow the viewport: publish the
+        # page's full extent as our minimum size so an enclosing QScrollArea
+        # grows scrollbars. Fit mode must NOT keep a stale floor -- it would
+        # stop the window from shrinking the canvas ever again.
+        if self._zoom_mode == "fit":
+            self.setMinimumSize(0, 0)
+        else:
+            self.setMinimumSize(page_w + 2 * _MARGIN_PX,
+                                page_h + 2 * _MARGIN_PX)
+        self._page.setGeometry(max((self.width() - page_w) // 2, _MARGIN_PX),
+                               max((self.height() - page_h) // 2, _MARGIN_PX),
+                               page_w, page_h)
         rects = {r.panel_id: r for r in self._doc.panel_rects()}
         content = self._build_node(self._doc.tree, (), labels, rects)
         content.setParent(self._page)
@@ -103,6 +139,7 @@ class Canvas(QWidget):
         self.apply_selection(self._selected_id)
         self.apply_swap_armed(self._swap_armed_id)
         self._feedback.raise_()
+        self.scale_changed.emit(self.px_per_mm)
 
     def _build_node(self, node: Node, path: tuple[int, ...],
                     labels: dict[str, str], rects: dict) -> QWidget:
@@ -111,9 +148,14 @@ class Canvas(QWidget):
             thumb, missing = self._load_thumb(node)
             text = format_label(labels.get(node.id, "?"),
                                 self._doc.constraints.panel_label_style)
+            standin = self._resolve_standin(node)
+            rect = rects.get(node.id)
             w = PanelWidget(node.id, text,
                             aspect_violated=violated,
-                            thumb=thumb, asset_missing=missing)
+                            thumb=thumb, asset_missing=missing,
+                            standin=standin,
+                            standin_mm=(rect.w_mm, rect.h_mm) if rect else None,
+                            constraints=self._doc.constraints)
             w.action.connect(self.panel_action.emit)
             w.asset_dropped.connect(self.asset_dropped.emit)
             panel_shadow(w)
@@ -131,6 +173,18 @@ class Canvas(QWidget):
         splitter.setSizes([max(round(r * total_px), 1) for r in node.ratios])
         self._splitters[path] = splitter
         return splitter
+
+    @staticmethod
+    def _resolve_standin(node: PanelNode) -> str | None:
+        """Explicit choice wins; None falls back to hint inference;
+        "none" suppresses. Asset panels never get one (thumb wins)."""
+        if node.asset is not None:
+            return None
+        kind = node.stand_in
+        if kind is None:
+            from figspec.standins import infer
+            kind = infer(node.content_hint)
+        return None if kind in (None, "none") else kind
 
     @staticmethod
     def _aspect_violated(node: PanelNode, rects: dict) -> bool:
@@ -154,6 +208,9 @@ class Canvas(QWidget):
         path = resolve_asset(node.asset, self._asset_base)
         if path is None:
             return None, True
+        if str(path).lower().endswith(".pdf"):
+            pix = self._render_pdf_thumb(path)
+            return (pix, False) if pix is not None else (None, True)
         pix = QPixmap(str(path))
         if pix.isNull():
             return None, True
@@ -161,6 +218,29 @@ class Canvas(QWidget):
             pix = pix.scaled(self._THUMB_MAX, self._THUMB_MAX,
                              Qt.KeepAspectRatio, Qt.SmoothTransformation)
         return pix, False
+
+    @classmethod
+    def _render_pdf_thumb(cls, path) -> "QPixmap | None":
+        """First page via pdfium (already in the dependency tree for lint)."""
+        try:
+            import io
+            import pypdfium2 as pdfium
+            doc = pdfium.PdfDocument(str(path))
+            try:
+                page = doc[0]
+                w_pt, h_pt = page.get_size()
+                if max(w_pt, h_pt) <= 0:
+                    return None
+                scale = min(cls._THUMB_MAX / max(w_pt, h_pt), 4.0)
+                pil = page.render(scale=scale).to_pil().convert("RGB")
+            finally:
+                doc.close()
+            buf = io.BytesIO()
+            pil.save(buf, "PNG")
+            pix = QPixmap()
+            return pix if pix.loadFromData(buf.getvalue()) else None
+        except Exception:
+            return None  # unreadable PDF -> "missing asset" treatment
 
     def _axis_mm(self, node: Node, path: tuple[int, ...]) -> float:
         """Length in mm of this splitter's axis, derived from the flattened rects."""
