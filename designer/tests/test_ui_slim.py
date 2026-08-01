@@ -62,3 +62,74 @@ def test_sidebar_has_no_copy_buttons(qtbot):
     qtbot.addWidget(win)
     for name in ("btn_copy_snippet", "btn_copy_placement", "btn_copy_card"):
         assert not hasattr(win.sidebar, name)
+
+
+# ---- I3: sidebar layers + truth line ------------------------------------
+
+def _png(tmp_path, w=1472, h=879):
+    from PySide6.QtGui import QImage
+    img = QImage(w, h, QImage.Format_RGB32)
+    img.fill(0xFFFFFFFF)
+    path = tmp_path / "a.png"
+    img.save(str(path))
+    return path
+
+
+def test_truth_line_no_asset_echoes_constraints(qtbot):
+    win = MainWindow()
+    qtbot.addWidget(win)
+    pid = next(iter_panels(win.doc.tree)).id
+    win.do_action("select", pid)
+    assert win.sidebar.btn_truth.text() == "5–7 pt · ≥0.25 pt"
+    assert not win.sidebar.btn_truth.isEnabled()
+
+
+def test_truth_line_raster(qtbot, tmp_path):
+    from figspec import scaling
+    win = MainWindow()
+    qtbot.addWidget(win)
+    pid = next(iter_panels(win.doc.tree)).id
+    win._on_asset_dropped(pid, str(_png(tmp_path)))
+    win.do_action("select", pid)
+    rect = next(r for r in win.doc.panel_rects() if r.panel_id == pid)
+    k = scaling.placement_scale(
+        (rect.w_mm, rect.h_mm), scaling.asset_size_mm((1472, 879), 96.0))
+    text = win.sidebar.btn_truth.text()
+    assert text.startswith(f"×{k:.3f} · ")
+    assert "dpi" in text
+    assert win.sidebar.btn_truth.isEnabled()
+
+
+def test_truth_line_vector_red(qtbot, tmp_path):
+    from figspec.selftest.samples import write_samples
+    win = MainWindow()
+    qtbot.addWidget(win)
+    samples = write_samples(tmp_path / "s")
+    pid = next(iter_panels(win.doc.tree)).id
+    win._on_asset_dropped(pid, str(samples["bad"]))
+    win.do_action("select", pid)
+    text = win.sidebar.btn_truth.text()
+    assert text.startswith("×") and "✗" in text
+    assert win.sidebar.btn_truth.property("level") == "bad"
+
+
+def test_details_collapsed_by_default(qtbot):
+    win = MainWindow()
+    qtbot.addWidget(win)
+    sb = win.sidebar
+    assert not sb.details_widget.isVisibleTo(sb)
+    sb.details_toggle.setChecked(True)
+    assert sb.details_widget.isVisibleTo(sb)
+
+
+def test_truth_popover_hosts_analysis(qtbot, tmp_path):
+    win = MainWindow()
+    qtbot.addWidget(win)
+    pid = next(iter_panels(win.doc.tree)).id
+    win._on_asset_dropped(pid, str(_png(tmp_path)))
+    win.do_action("select", pid)
+    sb = win.sidebar
+    # analysis widgets live in the popover container, not the column
+    assert sb.calc_nominal.window() is sb._truth_popover
+    assert sb.dpi_edit.window() is sb._truth_popover
+    assert sb.btn_remove_asset.isVisibleTo(sb)  # remove stays in the column

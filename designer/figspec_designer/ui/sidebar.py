@@ -91,22 +91,23 @@ class Sidebar(QWidget):
         size_row_layout.addWidget(times_lbl)
         size_row_layout.addWidget(self.spin_h)
 
-        fields = [
-            ("Label", self.lbl_label),
-            ("Position", self.lbl_xy),
-            ("Size (mm)", size_row),
-            ("Aspect", self.lbl_aspect),
-            ("Pixels", self.lbl_px),
-            ("figsize (in)", self.lbl_figsize),
-        ]
-
-        for row, (label_text, value_widget) in enumerate(fields):
+        for row, (label_text, value_widget) in enumerate([
+                ("Label", self.lbl_label), ("Size (mm)", size_row)]):
             left_label = QLabel(label_text)
             left_label.setObjectName("fieldLabel")
             grid.addWidget(left_label, row, 0)
             grid.addWidget(value_widget, row, 1)
-
         outer.addLayout(grid)
+
+        # The truth line: one glanceable fact about the selected panel
+        # (placement scale + effective value, or the constraint band).
+        # Clicking it opens the analysis popover — details on demand.
+        self.btn_truth = QPushButton("—")
+        self.btn_truth.setObjectName("truthLine")
+        self.btn_truth.setEnabled(False)
+        self.btn_truth.setToolTip(
+            "Source resolution, pt calculator and placement prediction")
+        outer.addWidget(self.btn_truth)
 
         # Hint edit
         self.hint_edit = QLineEdit()
@@ -132,14 +133,41 @@ class Sidebar(QWidget):
         standin_layout.addWidget(self.standin_combo, stretch=1)
         outer.addWidget(standin_row)
 
-        # Aspect lock + geometry tools
-        self.chk_aspect_lock = QCheckBox("Lock aspect ratio")
+        # Aspect lock + square on one compact row
+        geo_row = QWidget()
+        geo_layout = QHBoxLayout(geo_row)
+        geo_layout.setContentsMargins(0, 0, 0, 0)
+        geo_layout.setSpacing(6)
+        self.chk_aspect_lock = QCheckBox("Lock aspect")
         self.chk_aspect_lock.setObjectName("aspectLockCheck")
-        outer.addWidget(self.chk_aspect_lock)
-
-        self.btn_square = QPushButton("Make Square")
+        self.btn_square = QPushButton("Square")
         self.btn_square.setObjectName("squareButton")
-        outer.addWidget(self.btn_square)
+        geo_layout.addWidget(self.chk_aspect_lock, stretch=1)
+        geo_layout.addWidget(self.btn_square)
+        outer.addWidget(geo_row)
+
+        # Rarely-needed derived numbers, collapsed by default
+        from PySide6.QtWidgets import QToolButton
+        self.details_toggle = QToolButton()
+        self.details_toggle.setObjectName("detailsToggle")
+        self.details_toggle.setText("Details")
+        self.details_toggle.setCheckable(True)
+        self.details_toggle.setArrowType(Qt.RightArrow)
+        self.details_toggle.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        outer.addWidget(self.details_toggle)
+        self.details_widget = QWidget()
+        details_grid = QGridLayout(self.details_widget)
+        details_grid.setContentsMargins(0, 0, 0, 0)
+        details_grid.setSpacing(8)
+        for row, (label_text, value_widget) in enumerate([
+                ("Position", self.lbl_xy), ("Aspect", self.lbl_aspect),
+                ("Pixels", self.lbl_px), ("figsize (in)", self.lbl_figsize)]):
+            left_label = QLabel(label_text)
+            left_label.setObjectName("fieldLabel")
+            details_grid.addWidget(left_label, row, 0)
+            details_grid.addWidget(value_widget, row, 1)
+        self.details_widget.setVisible(False)
+        outer.addWidget(self.details_widget)
 
 
         # ---- external asset block (hidden unless the panel has one) ----
@@ -221,11 +249,22 @@ class Sidebar(QWidget):
         self.lbl_prediction.setWordWrap(True)
         self.lbl_prediction.setVisible(False)
         asset_layout.addWidget(self.lbl_prediction)
+
+        # The analysis lives behind the truth line, not in the column:
+        # asset_box keeps its identity (and every widget attribute the
+        # tests drive) but its home is now this popover.
+        self._truth_popover = QWidget(self, Qt.Popup)
+        self._truth_popover.setObjectName("truthPopover")
+        self._truth_popover.setAttribute(Qt.WA_StyledBackground, True)
+        pop_layout = QVBoxLayout(self._truth_popover)
+        pop_layout.setContentsMargins(14, 12, 14, 12)
+        pop_layout.addWidget(self.asset_box)
+        self._truth_popover.setMinimumWidth(250)
+
         self.btn_remove_asset = QPushButton("Remove Asset")
         self.btn_remove_asset.setObjectName("removeAssetButton")
-        asset_layout.addWidget(self.btn_remove_asset)
-        outer.addWidget(self.asset_box)
-        self.asset_box.setVisible(False)
+        self.btn_remove_asset.setVisible(False)
+        outer.addWidget(self.btn_remove_asset)
 
         # Stretch
         outer.addStretch(1)
@@ -247,6 +286,8 @@ class Sidebar(QWidget):
         self.calc_nominal.setValue(8.0)  # the plan's narrative anchor
         self.standin_combo.currentIndexChanged.connect(self._emit_standin)
         self.standin_combo.setEnabled(False)
+        self.btn_truth.clicked.connect(self._show_truth_popover)
+        self.details_toggle.toggled.connect(self._toggle_details)
 
     def _emit_hint(self) -> None:
         if self._panel_id is None:
@@ -316,6 +357,17 @@ class Sidebar(QWidget):
             self.standin_changed.emit(self._panel_id,
                                       self.standin_combo.itemData(index))
 
+    def _toggle_details(self, on: bool) -> None:
+        self.details_widget.setVisible(on)
+        self.details_toggle.setArrowType(Qt.DownArrow if on else Qt.RightArrow)
+
+    def _show_truth_popover(self) -> None:
+        from PySide6.QtCore import QPoint
+        self._truth_popover.adjustSize()
+        self._truth_popover.move(self.btn_truth.mapToGlobal(
+            QPoint(0, self.btn_truth.height() + 4)))
+        self._truth_popover.show()
+
     def _emit_aspect_lock(self, checked: bool) -> None:
         if self._panel_id is None:
             return
@@ -351,7 +403,8 @@ class Sidebar(QWidget):
                    scale_k: float | None = None,
                    stand_in: str | None = None,
                    asset_vector: bool = False,
-                   prediction: list[str] | None = None) -> None:
+                   prediction: list[str] | None = None,
+                   constraints=None) -> None:
         self._panel_id = panel_id
         w_px, h_px, figsize = derive(rect, dpi)
         self.lbl_label.setText(label)
@@ -386,6 +439,11 @@ class Sidebar(QWidget):
         self.standin_combo.setCurrentIndex(idx if idx >= 0 else 0)
         self.standin_combo.blockSignals(False)
         self.standin_combo.setEnabled(True)
+
+        self._refresh_truth(asset_name, asset_missing, asset_vector,
+                            scale_k, eff_dpi, dpi_level, prediction,
+                            constraints)
+        self.btn_remove_asset.setVisible(asset_name is not None)
 
         from figspec_designer.ui.theme import repolish
         if asset_name is None:
@@ -433,6 +491,44 @@ class Sidebar(QWidget):
                 self.calc_effective.setValue(self.calc_nominal.value() * scale_k)
                 self._calc_guard = False
 
+    def _refresh_truth(self, asset_name, asset_missing, asset_vector,
+                       scale_k, eff_dpi, dpi_level, prediction,
+                       constraints) -> None:
+        """One glanceable line: what happens to this panel's content."""
+        from figspec_designer.ui.theme import repolish
+        level = "ok"
+        if asset_name is None:
+            if constraints is not None:
+                text = (f"{constraints.min_font_pt:g}–"
+                        f"{constraints.max_font_pt:g} pt · "
+                        f"≥{constraints.min_linewidth_pt:g} pt")
+            else:
+                text = "—"
+            enabled = False
+        elif asset_missing:
+            text, level, enabled = "asset missing", "bad", False
+        elif asset_vector:
+            glyph = ""
+            if prediction:
+                joined = "\n".join(prediction)
+                glyph = (" ✗" if "✗" in joined
+                         else " △" if "△" in joined else " ✓")
+            level = ("bad" if glyph == " ✗"
+                     else "warn" if glyph == " △" else "ok")
+            eff = f"8→{8 * scale_k:.2f} pt" if scale_k else "vector"
+            text = (f"×{scale_k:.3f} · {eff}{glyph}" if scale_k
+                    else f"vector{glyph}")
+            enabled = True
+        else:
+            text = (f"×{scale_k:.3f} · " if scale_k else "") + (
+                f"{eff_dpi:.0f} dpi" if eff_dpi is not None else "raster")
+            level = dpi_level
+            enabled = True
+        self.btn_truth.setText(text)
+        self.btn_truth.setEnabled(enabled)
+        self.btn_truth.setProperty("level", level)
+        repolish(self.btn_truth)
+
     def clear(self) -> None:
         self._panel_id = None
         self._last_hint = None
@@ -440,6 +536,9 @@ class Sidebar(QWidget):
         self._shown_h = None
         self._k = None
         self._last_dpi_text = None
+        self.btn_truth.setText("—")
+        self.btn_truth.setEnabled(False)
+        self.btn_remove_asset.setVisible(False)
         for lbl in (self.lbl_label, self.lbl_xy, self.lbl_aspect,
                    self.lbl_px, self.lbl_figsize):
             lbl.setText("—")

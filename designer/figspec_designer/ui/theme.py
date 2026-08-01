@@ -91,6 +91,19 @@ QLabel#dpiValue[level="ok"] {{ color: {DPI_OK}; font-weight: 600; }}
 QLabel#dpiValue[level="warn"] {{ color: {DPI_WARN}; font-weight: 600; }}
 QLabel#dpiValue[level="bad"] {{ color: {DPI_BAD}; font-weight: 600; }}
 
+QPushButton#truthLine {{ background: {CANVAS}; border: 1px solid {HAIRLINE};
+    border-radius: 8px; padding: 5px 10px; text-align: left;
+    font-weight: 600; }}
+QPushButton#truthLine:disabled {{ color: {INK_MUTED}; font-weight: 400; }}
+QPushButton#truthLine[level="ok"] {{ color: {DPI_OK}; }}
+QPushButton#truthLine[level="warn"] {{ color: {DPI_WARN}; }}
+QPushButton#truthLine[level="bad"] {{ color: {DPI_BAD}; }}
+QToolButton#detailsToggle {{ border: none; color: {INK_MUTED};
+    font-size: 11px; padding: 2px 0; }}
+QToolButton#detailsToggle:hover {{ color: {INK}; }}
+QWidget#truthPopover {{ background: {PANEL_BG}; border: 1px solid {DIVIDER};
+    border-radius: 8px; }}
+
 QLabel#lintError {{ color: {DPI_BAD}; }}
 QLabel#lintSummary {{ font-weight: 600; }}
 """

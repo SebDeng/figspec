@@ -344,7 +344,8 @@ class MainWindow(QMainWindow):
                                 asset_missing=missing,
                                 asset_dpi=panel.asset_dpi, scale_k=scale_k,
                                 stand_in=panel.stand_in,
-                                asset_vector=is_vector, prediction=prediction)
+                                asset_vector=is_vector, prediction=prediction,
+                                constraints=self.doc.constraints)
         self.specimen_strip.set_panel_scale(scale_k)
 
     def _pdf_prediction_rows(self, panel, rect) -> list[str]:
