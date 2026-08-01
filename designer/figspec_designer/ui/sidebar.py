@@ -31,9 +31,6 @@ class Sidebar(QWidget):
     size_edited = Signal(str, str, float)  # (panel_id, axis, mm)
     square_requested = Signal(str)  # (panel_id)
     aspect_lock_toggled = Signal(str, object)  # (panel_id, float|None)
-    placement_copy_requested = Signal()
-    snippet_copy_requested = Signal()
-    card_copy_requested = Signal()
     asset_remove_requested = Signal(str)  # (panel_id)
     asset_dpi_edited = Signal(str, object)  # (panel_id, float|None)
     standin_changed = Signal(str, object)  # (panel_id, archetype|"none"|None)
@@ -144,17 +141,6 @@ class Sidebar(QWidget):
         self.btn_square.setObjectName("squareButton")
         outer.addWidget(self.btn_square)
 
-        self.btn_copy_placement = QPushButton("Copy Placement Table")
-        self.btn_copy_placement.setObjectName("copyPlacementButton")
-        outer.addWidget(self.btn_copy_placement)
-
-        self.btn_copy_snippet = QPushButton("Copy matplotlib Snippet")
-        self.btn_copy_snippet.setObjectName("copySnippetButton")
-        outer.addWidget(self.btn_copy_snippet)
-
-        self.btn_copy_card = QPushButton("Copy Authoring Card")
-        self.btn_copy_card.setObjectName("copyCardButton")
-        outer.addWidget(self.btn_copy_card)
 
         # ---- external asset block (hidden unless the panel has one) ----
         self.asset_box = QWidget()
@@ -254,10 +240,6 @@ class Sidebar(QWidget):
         self.btn_square.setEnabled(False)
         self.chk_aspect_lock.toggled.connect(self._emit_aspect_lock)
         self.chk_aspect_lock.setEnabled(False)
-        self.btn_copy_placement.clicked.connect(self.placement_copy_requested.emit)
-        self.btn_copy_snippet.clicked.connect(self.snippet_copy_requested.emit)
-        self.btn_copy_card.clicked.connect(self.card_copy_requested.emit)
-        self.btn_copy_card.setEnabled(False)
         self.btn_remove_asset.clicked.connect(self._emit_asset_remove)
         self.dpi_edit.editingFinished.connect(self._emit_asset_dpi)
         self.calc_nominal.valueChanged.connect(self._on_calc_nominal)
@@ -405,8 +387,6 @@ class Sidebar(QWidget):
         self.standin_combo.blockSignals(False)
         self.standin_combo.setEnabled(True)
 
-        self.btn_copy_card.setEnabled(True)
-
         from figspec_designer.ui.theme import repolish
         if asset_name is None:
             self.asset_box.setVisible(False)
@@ -460,7 +440,6 @@ class Sidebar(QWidget):
         self._shown_h = None
         self._k = None
         self._last_dpi_text = None
-        self.btn_copy_card.setEnabled(False)
         for lbl in (self.lbl_label, self.lbl_xy, self.lbl_aspect,
                    self.lbl_px, self.lbl_figsize):
             lbl.setText("—")

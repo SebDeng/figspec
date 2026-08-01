@@ -125,7 +125,7 @@ def test_copy_authoring_card_with_asset(qtbot, tmp_path):
     win = MainWindow()
     qtbot.addWidget(win)
     _drop_and_select(win, tmp_path)
-    win.sidebar.btn_copy_card.click()
+    win.copy_authoring_card()  # batch I: card lives in Hand Off
     text = QApplication.clipboard().text()
     assert text.startswith("FigSpec authoring card")
     assert "Option 1" in text and "Option 2" in text and "Option 3" in text
@@ -137,7 +137,7 @@ def test_copy_authoring_card_without_asset(qtbot):
     qtbot.addWidget(win)
     pid = next(iter_panels(win.doc.tree)).id
     win.do_action("select", pid)
-    win.sidebar.btn_copy_card.click()
+    win.copy_authoring_card()  # batch I: card lives in Hand Off
     text = QApplication.clipboard().text()
     assert "Option 1" in text and "Option 2" not in text
     assert "Option 3" not in text

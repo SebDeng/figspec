@@ -9,7 +9,6 @@ from PySide6.QtWidgets import (QDialog, QFileDialog, QFrame, QHBoxLayout,
                                QInputDialog, QMainWindow, QMessageBox,
                                QApplication, QScrollArea, QVBoxLayout, QWidget)
 from figspec.document import absolutize_assets
-from figspec.snippet import generate_snippet
 from figspec.spec import Target
 from figspec.templates import TEMPLATES
 from figspec_designer import presets
@@ -83,9 +82,6 @@ class MainWindow(QMainWindow):
         self.sidebar.size_edited.connect(self._on_size_edited)
         self.sidebar.square_requested.connect(self._on_square)
         self.sidebar.aspect_lock_toggled.connect(self._on_aspect_lock)
-        self.sidebar.placement_copy_requested.connect(self.copy_placement_table)
-        self.sidebar.snippet_copy_requested.connect(self.copy_snippet)
-        self.sidebar.card_copy_requested.connect(self.copy_authoring_card)
         self.sidebar.asset_remove_requested.connect(self._on_asset_removed)
         self.sidebar.asset_dpi_edited.connect(self._on_asset_dpi_edited)
         self.sidebar.standin_changed.connect(self._on_standin_changed)
@@ -118,18 +114,16 @@ class MainWindow(QMainWindow):
             return a
 
         file_menu = self.menuBar().addMenu("File")
+        self.file_menu = file_menu
         act(file_menu, "New from Template…", "Ctrl+N", self.new_from_template)
         act(file_menu, "Open…", "Ctrl+O", self._open_dialog)
         self.recent_menu = file_menu.addMenu("Open Recent")
         self.recent_menu.aboutToShow.connect(self._rebuild_recent_menu)
         act(file_menu, "Save JSON", "Ctrl+S", self.save)
         act(file_menu, "Save As…", "Ctrl+Shift+S", self.save_as)
-        act(file_menu, "Copy JSON", "Ctrl+Shift+C", self.copy_json)
-        act(file_menu, "Copy Placement Table", None, self.copy_placement_table)
-        act(file_menu, "Copy matplotlib Snippet", None, self.copy_snippet)
-        act(file_menu, "Copy Authoring Card", None, self.copy_authoring_card)
-        act(file_menu, "Export Layout Preview…", None, self.export_layout_preview)
-        act(file_menu, "Export Illustrator Board…", None, self.export_ai_board)
+        file_menu.addSeparator()
+        act(file_menu, "Hand Off…", "Ctrl+E", self.hand_off)
+        file_menu.addSeparator()
         self.lint_action = act(file_menu, "Lint PDF…", "Ctrl+L", self.lint_pdf)
         edit_menu = self.menuBar().addMenu("Edit")
         act(edit_menu, "Undo", "Ctrl+Z", self.undo)
@@ -633,125 +627,39 @@ class MainWindow(QMainWindow):
     def export_json_text(self) -> str:
         return self.doc.to_json()
 
+    # Hand-off actions live in ui/handoff.py; these delegates keep the
+    # public API (and its tests) stable.
+    def hand_off(self) -> None:
+        from figspec_designer.ui.handoff import HandoffDialog
+        HandoffDialog(self).exec()
+
     def copy_json(self) -> None:
-        QApplication.clipboard().setText(self.export_json_text())
-        self.statusBar().showMessage("figspec.json copied to clipboard", 3000)
+        from figspec_designer.ui import handoff
+        handoff.copy_json(self)
 
     def copy_placement_table(self) -> None:
-        labels = self.doc.labels()
-        rows = ["label\tx_mm\ty_mm\tw_mm\th_mm"]
-        for rect in sorted(self.doc.panel_rects(),
-                           key=lambda r: (round(r.y_mm, 1), r.x_mm)):
-            rows.append(f"{labels[rect.panel_id]}\t{rect.x_mm:.2f}\t"
-                        f"{rect.y_mm:.2f}\t{rect.w_mm:.2f}\t{rect.h_mm:.2f}")
-        QApplication.clipboard().setText("\n".join(rows) + "\n")
-        self.statusBar().showMessage("Placement table copied", 3000)
+        from figspec_designer.ui import handoff
+        handoff.copy_placement(self)
 
     def copy_snippet(self) -> None:
-        name = self.current_path.name if self.current_path else "Untitled"
-        QApplication.clipboard().setText(
-            generate_snippet(self.doc.to_spec_dict(), name))
-        self.statusBar().showMessage("matplotlib snippet copied", 3000)
+        from figspec_designer.ui import handoff
+        handoff.copy_snippet(self)
 
     def copy_authoring_card(self) -> None:
-        from figspec import scaling
-        pid = self.selected_panel_id
-        rect = next((r for r in self.doc.panel_rects() if r.panel_id == pid),
-                    None)
-        if rect is None:
-            self.statusBar().showMessage("Select a panel first", 3000)
-            return
-        panel = next(p for p in iter_panels(self.doc.tree) if p.id == pid)
-        # Undeclared raster sources fall back to the same 96 dpi assumption
-        # the sidebar displays -- the card must agree with the ×k on screen.
-        dpi = panel.asset_dpi if panel.asset_dpi else (
-            96.0 if panel.asset_px else None)
-        QApplication.clipboard().setText(scaling.authoring_card(
-            (rect.w_mm, rect.h_mm), self.doc.constraints,
-            asset_px=panel.asset_px, asset_dpi=dpi))
-        self.statusBar().showMessage("Authoring card copied", 3000)
+        from figspec_designer.ui import handoff
+        handoff.copy_card(self)
 
     def export_layout_preview(self) -> None:
-        from figspec_designer.ui.preview_export import render_layout_png
-        path, _ = QFileDialog.getSaveFileName(self, "Export layout preview",
-                                              "layout.png", "PNG image (*.png)")
-        if not path:
-            return
-        if not Path(path).suffix:
-            path += ".png"
-        if render_layout_png(self.doc, path):
-            self.statusBar().showMessage(f"Layout preview exported to {path}", 3000)
-        else:
-            self.statusBar().showMessage(f"Could not write {path}", 3000)
-
-    def _board_panels(self) -> list:
-        """Doc → BoardPanel list; asset paths resolved so the board embeds
-        exactly what the canvas shows (missing files stay None → frame only)."""
-        from figspec.board import BoardPanel
-        from figspec.document import resolve_asset
-        nodes = {p.id: p for p in iter_panels(self.doc.tree)}
-        labels = self.doc.labels()
-        out = []
-        for r in self.doc.panel_rects():
-            node = nodes[r.panel_id]
-            path = None
-            if node.asset is not None:
-                resolved = resolve_asset(node.asset, self._asset_base_dir())
-                path = str(resolved) if resolved is not None else None
-            out.append(BoardPanel(labels[r.panel_id], r.x_mm, r.y_mm,
-                                  r.w_mm, r.h_mm, asset_path=path,
-                                  asset_px=node.asset_px,
-                                  asset_dpi=node.asset_dpi))
-        return out
+        from figspec_designer.ui import handoff
+        handoff.export_preview(self)
 
     def export_ai_board(self) -> None:
-        from figspec.board import build_board
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Export Illustrator board", "figure-board.pdf",
-            "PDF for Illustrator (*.pdf)")
-        if not path:
-            return
-        if not Path(path).suffix:
-            path += ".pdf"
-        try:
-            build_board(self.doc.target.figure_width_mm,
-                        self.doc.target.figure_height_mm,
-                        self._board_panels(), path,
-                        constraints=self.doc.constraints,
-                        label_style=self.doc.constraints.panel_label_style)
-        except OSError as e:
-            self.statusBar().showMessage(f"Could not write board: {e}", 5000)
-            return
-        self.statusBar().showMessage(
-            "Illustrator board exported — opens at exact size", 4000)
+        from figspec_designer.ui import handoff
+        handoff.export_board(self)
 
     def export_panel_artboard(self, panel_id: str) -> None:
-        from figspec.board import panel_artboard
-        board = next((p for p in self._board_panels()
-                      if p.label == self.doc.labels().get(panel_id)), None)
-        if board is None:
-            self.statusBar().showMessage("Panel no longer exists", 3000)
-            return
-        from figspec.layout.flatten import format_label
-        letter = format_label(board.label,
-                              self.doc.constraints.panel_label_style)
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Export panel artboard", f"panel-{letter}-artboard.pdf",
-            "PDF for Illustrator (*.pdf)")
-        if not path:
-            return
-        if not Path(path).suffix:
-            path += ".pdf"
-        try:
-            panel_artboard(board, path, constraints=self.doc.constraints,
-                           label_style=self.doc.constraints.panel_label_style)
-        except OSError as e:
-            self.statusBar().showMessage(f"Could not write artboard: {e}",
-                                         5000)
-            return
-        self.statusBar().showMessage(
-            "Panel artboard exported — draw on it in Illustrator at 1:1",
-            4000)
+        from figspec_designer.ui import handoff
+        handoff.export_panel_artboard(self, panel_id)
 
     def lint_pdf(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Lint a finished PDF", "",
