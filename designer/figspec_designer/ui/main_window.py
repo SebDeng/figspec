@@ -129,6 +129,7 @@ class MainWindow(QMainWindow):
         act(file_menu, "Copy matplotlib Snippet", None, self.copy_snippet)
         act(file_menu, "Copy Authoring Card", None, self.copy_authoring_card)
         act(file_menu, "Export Layout Preview…", None, self.export_layout_preview)
+        act(file_menu, "Export Illustrator Board…", None, self.export_ai_board)
         self.lint_action = act(file_menu, "Lint PDF…", "Ctrl+L", self.lint_pdf)
         edit_menu = self.menuBar().addMenu("Edit")
         act(edit_menu, "Undo", "Ctrl+Z", self.undo)
@@ -454,6 +455,8 @@ class MainWindow(QMainWindow):
                 self.canvas.apply_swap_armed(panel_id)
                 self.statusBar().showMessage(
                     "Swap: select another panel to exchange with (Esc to cancel)")
+            elif action == "export_artboard":
+                self.export_panel_artboard(panel_id)
             elif action == "close":
                 self._push_tree(ops.close_panel(self.doc.tree, panel_id))
         except ValueError as e:
@@ -680,6 +683,75 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"Layout preview exported to {path}", 3000)
         else:
             self.statusBar().showMessage(f"Could not write {path}", 3000)
+
+    def _board_panels(self) -> list:
+        """Doc → BoardPanel list; asset paths resolved so the board embeds
+        exactly what the canvas shows (missing files stay None → frame only)."""
+        from figspec.board import BoardPanel
+        from figspec.document import resolve_asset
+        nodes = {p.id: p for p in iter_panels(self.doc.tree)}
+        labels = self.doc.labels()
+        out = []
+        for r in self.doc.panel_rects():
+            node = nodes[r.panel_id]
+            path = None
+            if node.asset is not None:
+                resolved = resolve_asset(node.asset, self._asset_base_dir())
+                path = str(resolved) if resolved is not None else None
+            out.append(BoardPanel(labels[r.panel_id], r.x_mm, r.y_mm,
+                                  r.w_mm, r.h_mm, asset_path=path,
+                                  asset_px=node.asset_px,
+                                  asset_dpi=node.asset_dpi))
+        return out
+
+    def export_ai_board(self) -> None:
+        from figspec.board import build_board
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export Illustrator board", "figure-board.pdf",
+            "PDF for Illustrator (*.pdf)")
+        if not path:
+            return
+        if not Path(path).suffix:
+            path += ".pdf"
+        try:
+            build_board(self.doc.target.figure_width_mm,
+                        self.doc.target.figure_height_mm,
+                        self._board_panels(), path,
+                        constraints=self.doc.constraints,
+                        label_style=self.doc.constraints.panel_label_style)
+        except OSError as e:
+            self.statusBar().showMessage(f"Could not write board: {e}", 5000)
+            return
+        self.statusBar().showMessage(
+            "Illustrator board exported — opens at exact size", 4000)
+
+    def export_panel_artboard(self, panel_id: str) -> None:
+        from figspec.board import panel_artboard
+        board = next((p for p in self._board_panels()
+                      if p.label == self.doc.labels().get(panel_id)), None)
+        if board is None:
+            self.statusBar().showMessage("Panel no longer exists", 3000)
+            return
+        from figspec.layout.flatten import format_label
+        letter = format_label(board.label,
+                              self.doc.constraints.panel_label_style)
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export panel artboard", f"panel-{letter}-artboard.pdf",
+            "PDF for Illustrator (*.pdf)")
+        if not path:
+            return
+        if not Path(path).suffix:
+            path += ".pdf"
+        try:
+            panel_artboard(board, path, constraints=self.doc.constraints,
+                           label_style=self.doc.constraints.panel_label_style)
+        except OSError as e:
+            self.statusBar().showMessage(f"Could not write artboard: {e}",
+                                         5000)
+            return
+        self.statusBar().showMessage(
+            "Panel artboard exported — draw on it in Illustrator at 1:1",
+            4000)
 
     def lint_pdf(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Lint a finished PDF", "",

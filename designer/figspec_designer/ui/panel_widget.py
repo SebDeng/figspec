@@ -122,6 +122,9 @@ class PanelWidget(QFrame):
         menu.addAction("Equalize",
                        lambda: self.action.emit("equalize", self.panel_id))
         menu.addAction("Swap", lambda: self.action.emit("swap", self.panel_id))
+        menu.addAction("Export Panel Artboard…",
+                       lambda: self.action.emit("export_artboard",
+                                                self.panel_id))
         menu.exec(event.globalPos())
 
     @staticmethod
