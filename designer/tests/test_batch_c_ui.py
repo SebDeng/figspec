@@ -174,7 +174,10 @@ def test_sidebar_asset_block_and_dpi_light(qtbot, tmp_path):
     win._on_asset_dropped(pid, str(png))
     win.do_action("select", pid)
     sb = win.sidebar
-    assert sb.asset_box.isVisibleTo(sb)  # offscreen-safe visibility check
+    # batch I: the asset block lives in the truth popover; the column shows
+    # the truth line instead
+    assert sb.asset_box.isVisibleTo(sb._truth_popover)
+    assert sb.btn_truth.isEnabled()
     assert sb.lbl_asset_name.text() == "asset.png"
     assert sb.lbl_asset_px.text() == "400 × 300 px"
     # default panel 183x100mm: eff dpi = min(400/7.2in, 300/3.94in) ~ 55 -> red

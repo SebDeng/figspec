@@ -34,7 +34,7 @@ def test_panel_widget_theme_hooks(qtbot):
     from figspec_designer.ui.panel_widget import PanelWidget
     w = PanelWidget("p1", "a")
     qtbot.addWidget(w)
-    assert w.findChild(QWidget, "panelActions") is not None
+    assert w.findChild(QWidget, "panelActions") is None  # hover UI retired
     assert w.label_widget.objectName() == "panelLetter"
     w.set_selected(True)
     assert w.property("selected") is True  # property survives repolish path

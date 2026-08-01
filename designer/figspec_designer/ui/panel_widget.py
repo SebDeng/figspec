@@ -1,13 +1,9 @@
 """A single panel on the canvas: big label, hover action buttons."""
 from __future__ import annotations
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QMenu, QToolButton,
+from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QMenu,
                                QVBoxLayout, QWidget)
 from figspec_designer.ui.theme import repolish
-
-_BTN_SPECS = [("btn_split_right", "▸", "split_right", "Split right (Cmd+D)"),
-              ("btn_split_down", "▾", "split_down", "Split down (Shift+Cmd+D)"),
-              ("btn_close", "✕", "close", "Delete panel (Cmd+Backspace)")]
 
 ASSET_EXTS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".pdf"}
 
@@ -50,29 +46,6 @@ class PanelWidget(QFrame):
         bar.addWidget(self.missing_badge)
 
         bar.addStretch(1)
-
-        # Create panelActions container
-        actions = QWidget(self)
-        actions.setObjectName("panelActions")
-        actions.setAttribute(Qt.WA_StyledBackground, True)
-        actions_layout = QHBoxLayout(actions)
-        actions_layout.setContentsMargins(2, 2, 2, 2)
-        actions_layout.setSpacing(0)
-
-        self._buttons = []
-        for name, glyph, act, tip in _BTN_SPECS:
-            btn = QToolButton(actions)
-            btn.setObjectName(name)
-            btn.setText(glyph)
-            btn.setToolTip(tip)
-            btn.setAutoRaise(True)
-            btn.clicked.connect(lambda _=False, a=act: self.action.emit(a, self.panel_id))
-            actions_layout.addWidget(btn)
-            self._buttons.append(btn)
-
-        actions.setVisible(False)
-        self._actions = actions
-        bar.addWidget(actions)
         root.addLayout(bar)
 
         self.label_widget = QLabel(label_text, self)
@@ -101,30 +74,27 @@ class PanelWidget(QFrame):
     def set_aspect_violation(self, violated: bool) -> None:
         self.aspect_badge.setVisible(violated)
 
-    def enterEvent(self, event) -> None:
-        self._actions.setVisible(True)
-        super().enterEvent(event)
-
-    def leaveEvent(self, event) -> None:
-        self._actions.setVisible(False)
-        super().leaveEvent(event)
-
     def mousePressEvent(self, event) -> None:
         self.action.emit("select", self.panel_id)
         super().mousePressEvent(event)
 
+    # Hover buttons retired (batch I): the context menu is the panel's one
+    # on-canvas action surface, alongside menubar shortcuts.
+    def context_actions(self) -> list[tuple[str, str]]:
+        return [("Split Right", "split_right"),
+                ("Split Down", "split_down"),
+                ("Split Right N…", "split_right_n"),
+                ("Split Down N…", "split_down_n"),
+                ("Equalize", "equalize"),
+                ("Swap", "swap"),
+                ("Export Panel Artboard…", "export_artboard"),
+                ("Delete Panel", "close")]
+
     def contextMenuEvent(self, event) -> None:
         menu = QMenu(self)
-        menu.addAction("Split Right N…",
-                       lambda: self.action.emit("split_right_n", self.panel_id))
-        menu.addAction("Split Down N…",
-                       lambda: self.action.emit("split_down_n", self.panel_id))
-        menu.addAction("Equalize",
-                       lambda: self.action.emit("equalize", self.panel_id))
-        menu.addAction("Swap", lambda: self.action.emit("swap", self.panel_id))
-        menu.addAction("Export Panel Artboard…",
-                       lambda: self.action.emit("export_artboard",
-                                                self.panel_id))
+        for text, action in self.context_actions():
+            menu.addAction(text,
+                           lambda a=action: self.action.emit(a, self.panel_id))
         menu.exec(event.globalPos())
 
     @staticmethod

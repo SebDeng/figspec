@@ -74,6 +74,11 @@ class MainWindow(QMainWindow):
         self.canvas.asset_dropped.connect(self._on_asset_dropped)
         self.canvas.scale_changed.connect(self._on_canvas_scale)
         self.specimen_strip.actual_size_requested.connect(self.zoom_actual)
+        self.specimen_strip.btn_fit.clicked.connect(self.zoom_fit)
+        self.specimen_strip.btn_zoom_in.clicked.connect(
+            lambda: self.zoom_step(1.25))
+        self.specimen_strip.btn_zoom_out.clicked.connect(
+            lambda: self.zoom_step(0.8))
         self.topbar.settings_changed.connect(self._on_settings_changed)
         self.topbar.handoff_requested.connect(self.hand_off)
         self.sidebar.content_hint_edited.connect(self._on_hint_edited)

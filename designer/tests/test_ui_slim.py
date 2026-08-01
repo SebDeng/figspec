@@ -133,3 +133,39 @@ def test_truth_popover_hosts_analysis(qtbot, tmp_path):
     assert sb.calc_nominal.window() is sb._truth_popover
     assert sb.dpi_edit.window() is sb._truth_popover
     assert sb.btn_remove_asset.isVisibleTo(sb)  # remove stays in the column
+
+
+# ---- I4: status strip + zoom cluster + hover retirement -----------------
+
+def test_strip_collapsed_by_default_and_expands(qtbot):
+    win = MainWindow()
+    qtbot.addWidget(win)
+    strip = win.specimen_strip
+    assert not strip.expanded
+    assert strip.height() <= 30
+    strip.btn_expand.click()
+    assert strip.expanded and strip.height() >= 50
+    assert not strip.area.isVisibleTo(strip) or strip.expanded  # area shown
+    strip.btn_expand.click()
+    assert not strip.expanded
+
+
+def test_zoom_cluster_drives_canvas(qtbot, monkeypatch):
+    win = MainWindow()
+    qtbot.addWidget(win)
+    monkeypatch.setattr(win, "_actual_ppm", lambda: 4.0)
+    win.specimen_strip.btn_actual.click()
+    assert win.canvas.zoom_mode == "actual"
+    win.specimen_strip.btn_zoom_in.click()
+    assert win.canvas.zoom_mode == "manual"
+    assert win.canvas.px_per_mm == pytest.approx(5.0)
+    win.specimen_strip.btn_fit.click()
+    assert win.canvas.zoom_mode == "fit"
+
+
+def test_panel_widget_has_no_hover_buttons(qtbot):
+    win = MainWindow()
+    qtbot.addWidget(win)
+    widget = next(iter(win.canvas.panel_widgets().values()))
+    assert widget.findChild(object, "btn_split_right") is None
+    assert ("Split Right", "split_right") in widget.context_actions()

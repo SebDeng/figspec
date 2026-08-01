@@ -97,20 +97,50 @@ class SpecimenStrip(QWidget):
         self.area = _SpecimenArea(self)
         self.badge = QLabel("")
         self.badge.setObjectName("zoomBadge")
+
+        # One place for every zoom entry (View menu drives the same slots).
+        self.btn_expand = QPushButton("▸")
+        self.btn_expand.setObjectName("stripExpand")
+        self.btn_expand.setToolTip("Show type and line specimens")
+        self.btn_fit = QPushButton("Fit")
+        self.btn_fit.setObjectName("zoomButton")
         self.btn_actual = QPushButton("1:1")
-        self.btn_actual.setObjectName("actualSizeButton")
+        self.btn_actual.setObjectName("zoomButton")
         self.btn_actual.setToolTip("Show at actual print size")
+        self.btn_zoom_out = QPushButton("−")
+        self.btn_zoom_out.setObjectName("zoomButton")
+        self.btn_zoom_in = QPushButton("+")
+        self.btn_zoom_in.setObjectName("zoomButton")
         self.btn_actual.clicked.connect(self.actual_size_requested.emit)
+        self.btn_expand.clicked.connect(
+            lambda: self.set_expanded(not self._expanded))
 
         lay = QHBoxLayout(self)
         lay.setContentsMargins(8, 2, 8, 2)
         lay.setSpacing(8)
+        lay.addWidget(self.btn_expand)
         lay.addWidget(self.area, stretch=1)
         lay.addWidget(self.badge)
-        lay.addWidget(self.btn_actual)
-        self.setFixedHeight(60)
+        for b in (self.btn_fit, self.btn_actual, self.btn_zoom_out,
+                  self.btn_zoom_in):
+            lay.addWidget(b)
+        self._expanded = False
+        self.set_expanded(False)
 
     # ---- state (pure, test-pinned) ----------------------------------
+    def set_expanded(self, on: bool) -> None:
+        """Collapsed by default: a slim badge line. Expanding reveals the
+        full specimen strip — the truth is one click away, not 60 px of
+        permanent chrome."""
+        self._expanded = bool(on)
+        self.area.setVisible(self._expanded)
+        self.btn_expand.setText("▾" if self._expanded else "▸")
+        self.setFixedHeight(60 if self._expanded else 26)
+
+    @property
+    def expanded(self) -> bool:
+        return self._expanded
+
     def set_context(self, ppm: float, actual_ppm: float, constraints) -> None:
         self.ppm, self.actual_ppm, self.constraints = ppm, actual_ppm, constraints
         mm = truescale.PT_TO_MM * constraints.min_font_pt

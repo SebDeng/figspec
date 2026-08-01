@@ -33,10 +33,15 @@ PanelWidget[selected="true"] {{ border: 2px solid {INK}; }}
 PanelWidget[swapArmed="true"] {{ border: 2px dashed {AMBER_BG}; }}
 QLabel#panelLetter {{ color: {LETTER}; font-size: 20px; font-weight: 600; background: transparent; border: none; }}
 
-QWidget#panelActions {{ background: {PANEL_BG}; border: 1px solid {HAIRLINE}; border-radius: 6px; }}
-QWidget#panelActions QToolButton {{ border: none; border-radius: 4px; padding: 2px 6px;
-    color: {INK_SECONDARY}; background: transparent; font-size: 12px; }}
-QWidget#panelActions QToolButton:hover {{ background: {CANVAS}; color: {INK}; }}
+QWidget#specimenStrip {{ background: {CHROME}; border-top: 1px solid {HAIRLINE}; }}
+QPushButton#zoomButton {{ background: {CHROME}; border: 1px solid {HAIRLINE};
+    border-radius: 6px; padding: 1px 8px; font-size: 11px;
+    color: {INK_SECONDARY}; }}
+QPushButton#zoomButton:hover {{ color: {INK}; border-color: {DIVIDER}; }}
+QPushButton#stripExpand {{ background: transparent; border: none;
+    color: {INK_MUTED}; padding: 0 4px; }}
+QPushButton#stripExpand:hover {{ color: {INK}; }}
+QLabel#zoomBadge {{ color: {INK_SECONDARY}; font-size: 11px; }}
 
 QLabel#aspectBadge {{ background: {AMBER_BG}; color: {AMBER_INK}; font-size: 10px;
     font-weight: 700; padding: 1px 6px; border-radius: 8px; }}
