@@ -43,7 +43,7 @@ class MainWindow(QMainWindow):
         self.topbar = TopBar()
         self.canvas = Canvas()
         self.sidebar = Sidebar()
-        self.sidebar.setFixedWidth(260)
+        self.sidebar.setFixedWidth(276)
         from figspec_designer.ui.specimen_strip import SpecimenStrip
         self.specimen_strip = SpecimenStrip()
 

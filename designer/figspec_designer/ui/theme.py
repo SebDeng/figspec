@@ -1,7 +1,17 @@
 """Direction C ("minimal studio") theme: every color and style decision lives here."""
 from __future__ import annotations
+from pathlib import Path
+
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import QGraphicsDropShadowEffect, QWidget
+
+# Zero-size border "CSS triangles" render as rounded blobs in this Qt, so
+# the stepper/combo arrows are shipped SVG assets referenced by path.
+_ASSETS = Path(__file__).resolve().parent / "assets"
+_ARROW_UP = (_ASSETS / "arrow-up.svg").as_posix()
+_ARROW_DOWN = (_ASSETS / "arrow-down.svg").as_posix()
+_ARROW_UP_DIM = (_ASSETS / "arrow-up-dim.svg").as_posix()
+_ARROW_DOWN_DIM = (_ASSETS / "arrow-down-dim.svg").as_posix()
 
 CHROME = "#FAF9F7"
 CANVAS = "#F1EFEB"
@@ -72,7 +82,36 @@ QWidget#docPopover QLabel {{ color: {INK_MUTED}; font-size: 12px; }}
 QComboBox, QDoubleSpinBox, QSpinBox {{ background: {PANEL_BG}; border: 1px solid {HAIRLINE};
     border-radius: 6px; padding: 3px 8px; color: {INK}; }}
 QComboBox:hover, QDoubleSpinBox:hover, QSpinBox:hover {{ border-color: {DIVIDER}; }}
-QComboBox::drop-down {{ border: none; width: 18px; }}
+QDoubleSpinBox, QSpinBox {{ padding-right: 16px; }}
+
+/* Flat integrated steppers: a hairline-separated right column with tiny
+   triangle glyphs, replacing the platform's default spin buttons. */
+QDoubleSpinBox::up-button, QSpinBox::up-button {{
+    subcontrol-origin: border; subcontrol-position: top right;
+    width: 14px; border: none; border-left: 1px solid {HAIRLINE};
+    border-top-right-radius: 6px; background: transparent; }}
+QDoubleSpinBox::down-button, QSpinBox::down-button {{
+    subcontrol-origin: border; subcontrol-position: bottom right;
+    width: 14px; border: none; border-left: 1px solid {HAIRLINE};
+    border-bottom-right-radius: 6px; background: transparent; }}
+QDoubleSpinBox::up-button:hover, QSpinBox::up-button:hover,
+QDoubleSpinBox::down-button:hover, QSpinBox::down-button:hover {{
+    background: {CANVAS}; }}
+QDoubleSpinBox::up-button:pressed, QSpinBox::up-button:pressed,
+QDoubleSpinBox::down-button:pressed, QSpinBox::down-button:pressed {{
+    background: {HAIRLINE}; }}
+QDoubleSpinBox::up-arrow, QSpinBox::up-arrow {{
+    image: url("{_ARROW_UP}"); width: 8px; height: 5px; }}
+QDoubleSpinBox::down-arrow, QSpinBox::down-arrow {{
+    image: url("{_ARROW_DOWN}"); width: 8px; height: 5px; }}
+QDoubleSpinBox::up-arrow:disabled, QSpinBox::up-arrow:disabled {{
+    image: url("{_ARROW_UP_DIM}"); }}
+QDoubleSpinBox::down-arrow:disabled, QSpinBox::down-arrow:disabled {{
+    image: url("{_ARROW_DOWN_DIM}"); }}
+
+QComboBox::drop-down {{ border: none; width: 20px; }}
+QComboBox::down-arrow {{ image: url("{_ARROW_DOWN}");
+    width: 8px; height: 5px; margin-right: 4px; }}
 QDoubleSpinBox[overLimit="true"] {{
     color: {AMBER_INK}; border: 1px solid {AMBER_BG};
     background: #FBF3E2;

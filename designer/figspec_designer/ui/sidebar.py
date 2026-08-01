@@ -78,7 +78,9 @@ class Sidebar(QWidget):
             spin.setObjectName("fieldValue")
             spin.setDecimals(1)
             spin.setRange(5.0, 600.0)
-            spin.setSuffix(" mm")
+            # no " mm" suffix: the row label says it, and the narrow column
+            # needs the room once the stepper strip is accounted for
+            spin.setMinimumWidth(80)
             spin.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
         size_row = QWidget()
